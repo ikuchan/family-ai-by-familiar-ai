@@ -138,8 +138,8 @@ class Iteration:
         ip, agent = self.ip, self.agent
         # **誰の面から引くか。** 話者が居なければパジュ自身。想起は口を通すので、面は `View.viewpoint`
         # で言う（環-e-い）。申告も同じ面へ当てる。`situated_memories` は人ごとなので、ずれると 0 行に
-        # 当たる（出-h-ろ ③）。以前は `_active_memory()` の選び方で、話者の指定が切れた直後にずれていた（環-ab）。
-        self.viewpoint = agent._pmm.current_speaker_id or AGENT_SELF_ID
+        # 当たる（出-h-ろ ③）。以前は `_active_memory()` の選び方で、話者の指定が切れた直後にずれていた（環-ab）。端末の求めは端末の話者。
+        self.viewpoint = ip._speaker_id() or AGENT_SELF_ID
         self.verdict_view = self.viewpoint
         self.cue = ip._req.cue or self.utterance
         _mcfg = MemoryConfig()

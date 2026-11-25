@@ -163,7 +163,7 @@ def _dispatch(ip, *done: "tuple[int, bool | None]") -> list:
         )
     thrown: list = []
 
-    async def run(action, tool_input, query, intent_id, index=0):
+    async def run(action, tool_input, query, intent_id, index=0, **_):
         thrown.append(query)
 
     ip._run_lookup = run

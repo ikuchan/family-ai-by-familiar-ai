@@ -334,6 +334,8 @@ class Trigger:
     source: str = ""
     #: `会話入力` だけが使う。届いた口（端-b 段 1-ろ）。家は空、端末はその端末の名前。窓の持ち主と比べる。
     device: str = ""
+    #: `会話入力` だけが使う。端末で押した話者の名前（端-b 段 1-ろ-3）。家は空。
+    speaker: str = ""
     # `会話入力` だけが使う。届いた時刻（`time.monotonic()`・出-au 段 1-1）。窓はこの時刻で判定する。
     arrived: float = 0.0
     # `会話入力` だけが使う。名前で呼ばれたか（出-au 段 1-2）。門が決める。直に作った会話入力（試験）は名前ありとして
@@ -988,6 +990,9 @@ class InformationProcessing:
     def _addressee(self) -> "tuple[str | None, str]":
         """言いたかった相手（面を立てる id と、呼び名）。分からなければ (None, "")。"""
         agent = self._agent
+        device = self._device_speaker()
+        if device is not None:
+            return device
         with contextlib.suppress(Exception):
             if agent.speaker_known() and agent._pmm.current_speaker_id:
                 return str(agent._pmm.current_speaker_id), self._current_speaker_name()
@@ -1190,8 +1195,11 @@ class InformationProcessing:
             self._req.spent_actions.add("deep_research")  # 1 つの求めで 1 回まで（出-dh・本人）
         lk = self._open_lookup(action, query)
         # 完了はこの器の uuid を持って戻る（出-cc）。呼び手の `intent_id` はいつも None だった。
+        # 記憶を引く人は、投げたいまの求めで決める（裏で走るあいだに次の求めが始まっても、取り違えない・端-b 段 1-ろ-3）。
         task = asyncio.create_task(
-            self._run_lookup(action, tool_input, query, lk.intent_id, lk.index)
+            self._run_lookup(
+                action, tool_input, query, lk.intent_id, lk.index, people=self._recall_people()
+            )
         )
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
@@ -1661,12 +1669,19 @@ class InformationProcessing:
         return result
 
     async def _run_lookup(
-        self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
+        self,
+        action: str,
+        tool_input: dict,
+        query: str,
+        intent_id: str | None,
+        index: int = 0,
+        *,
+        people: "list[str] | None" = None,
     ) -> None:
         """調べものを実行し、**かかった秒数を必ず残す**（出-k-い）。中身は `_run_lookup_body`。"""
         started = time.monotonic()
         try:
-            await self._run_lookup_body(action, tool_input, query, intent_id, index)
+            await self._run_lookup_body(action, tool_input, query, intent_id, index, people=people)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -1802,9 +1817,19 @@ class InformationProcessing:
         return answer.text, False
 
     async def _run_lookup_body(
-        self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
+        self,
+        action: str,
+        tool_input: dict,
+        query: str,
+        intent_id: str | None,
+        index: int = 0,
+        *,
+        people: "list[str] | None" = None,
     ) -> None:
-        """`recall` は同期で結果が返る。deferred は投げるだけで、完了は自身が QC へ積む。"""
+        """`recall` は同期で結果が返る。deferred は投げるだけで、完了は自身が QC へ積む。
+
+        `people` は思い出す道具が記憶を引く人で、投げた時点の求めで決めてある（`_recall_people`・端-b 段 1-ろ-3）。
+        """
         # **確認待ちのあいだ、掛け直しは機械が落とす**（出-ag-ろ・2026-09-21）。
         # 言葉で頼んでも守られなかった——1 回の「3 分測って」で `set_timer` が 3 回投げられ、
         # 確認待ちを作り直したうえで「セットしました」と言った（実機 17:34・掛かっていない）。
@@ -2052,6 +2077,7 @@ class InformationProcessing:
                 "recall",
                 tool_input,
                 exclude_ids=[exclude] if exclude else None,
+                people=people,
             )
         except asyncio.CancelledError:
             raise
@@ -2085,7 +2111,7 @@ class InformationProcessing:
         agent = self._agent
         cfg = MemoryConfig()
         query = str(tool_input.get("query") or self._req.cue or "")
-        viewpoint = agent._pmm.current_speaker_id or AGENT_SELF_ID
+        viewpoint = self._speaker_id() or AGENT_SELF_ID
         head = ""  # 何を広げたか。**返りだけを見て分かるようにする**（出-ah）
         weights = cfg.recall_weights(self._req.trigger_kind)
         k = cfg.recall_k
@@ -2438,10 +2464,13 @@ class InformationProcessing:
         return next(iter(sorted(names)), "")
 
     def _gated(self, defs: list[dict]) -> list[dict]:
-        """話者ゲート（知-f）。主LLM の道具と調停の候補は**同じ出口**を通る。"""
+        """話者ゲート（知-f）。主LLM の道具と調停の候補は**同じ出口**を通る。
+
+        端末の求めでは、本人の道具（vault・journal）を開けない（端末で押した話者は確かめていない・端-b 段 1-ろ-3・仮）。
+        """
         return gate_personal_tools(
             defs,
-            speaker=self._current_speaker_name(),
+            speaker="" if self._req_device() else self._current_speaker_name(),
             members=parsing.parse_family_md(
                 md if isinstance(md := getattr(self._agent, "_family_md", ""), str) else ""
             ),
@@ -2552,6 +2581,13 @@ class InformationProcessing:
         from ..core.tone import is_adult
 
         agent = self._agent
+        device = self._device_speaker()
+        if device is not None:
+            return (
+                is_adult(device[1], str(getattr(agent, "_family_md", "") or ""))
+                if device[1]
+                else None
+            )
         try:
             rows = agent._pmm.presence_status()
         except Exception:  # noqa: BLE001
@@ -2650,6 +2686,13 @@ class InformationProcessing:
         self._pending_named = False
         self._req.device = str(getattr(self, "_pending_device", "")) if kind == "発話" else ""
         self._pending_device = ""
+        # 端末の求めの話者は求めが持つ（家の顔ぶれにも明示の話者にも書かない・端-b 段 1-ろ-3・b3）。
+        self._req.speaker = (
+            self._resolve_device_speaker(str(getattr(self, "_pending_speaker", "") or ""))
+            if self._req.device
+            else None
+        )
+        self._pending_speaker = ""
         self._req.waited = getattr(self, "_pending_waited", "") if kind == "発話" else ""
         self._req.rang = bool(getattr(self, "_pending_rang", False)) if kind == "発話" else False
         self._pending_waited, self._pending_rang = "", False
@@ -2717,6 +2760,7 @@ class InformationProcessing:
         no_speech: "float | None" = None,
         logprob: "float | None" = None,
         device: str = "",
+        speaker: str = "",
     ) -> str:
         """人の言葉を待ち行列へ積み、**その反復の出力**を返す（環-f-い-2）。
 
@@ -2740,7 +2784,8 @@ class InformationProcessing:
 
         `on_text` は出力先（駆動体が起こす反復も使う）。`source` は声（`voice`）かキーボード
         （`keyboard`）か端末（`device`）か（出-as 段 2）。`arrived` は届いた時刻（`time.monotonic()`・出-au 段 1-1）で、
-        無ければいま。`device` は届いた端末の名前（家は空・端-b 段 1-ろ）。
+        無ければいま。`device` は届いた端末の名前（家は空・端-b 段 1-ろ）。`speaker` は端末で押した話者の名前
+        （端-b 段 1-ろ-3）で、その求めの話者になる（家の話者の状態には書かない）。
         """
         agent = self._agent
         if (source == "device") != bool(device):
@@ -2769,6 +2814,7 @@ class InformationProcessing:
             no_speech=no_speech,
             logprob=logprob,
             device=device,
+            speaker=speaker if device else "",
         )
         if await self._swallow_if_unheard(trigger):
             if trigger.ear_dropped:
@@ -3033,6 +3079,7 @@ class InformationProcessing:
                     )
             if pending_final is not None:
                 self._spawn_final(pending_final, _xid)
+        self._req.speaker = None  # 端末の話者は求めと一緒に外す（端-b 段 1-ろ-3）
         self._req.request_id = None
         await self._to_state("request_closed")  # 打ち切った求めも閉じる（環-aw）
         self._req.live_version_id = None
@@ -3716,6 +3763,7 @@ class InformationProcessing:
         stopped = False
         self._pending_source = trigger.source  # 声かキーボードか（出-bg：合図は声だけ）
         self._pending_device = trigger.device  # 届いた口（返事の行き先・端-b 段 1-ろ）
+        self._pending_speaker = trigger.speaker  # 端末で押した話者（端-b 段 1-ろ-3）
         # 名前で呼ばれたか（出-cx：返事の話し終わりから窓を開ける）
         self._pending_named = trigger.named
         self._pending_window_session = (
@@ -5008,6 +5056,55 @@ class InformationProcessing:
         device = getattr(self.__dict__.get("_req"), "device", "")
         return device if isinstance(device, str) else ""
 
+    def _device_speaker(self) -> "tuple[str | None, str] | None":
+        """端末の求めの話者（人物 id と呼び名）。家の求めなら None（端-b 段 1-ろ-3・b3）。
+
+        端末で押した話者は求めが持ち、家の話者の状態（顔ぶれ・明示の話者・話者の時刻）には書かない。求めのあいだは
+        寿命で切れない。家族に当たらない名前や名前の無い端末は `(None, "")`（誰か分からない）で、家の話者を借りない。
+        求めが閉じたら None（求めの話者は閉じる所で外す）。話者を読む口（`speaker_known`・想起の面・会話の書き手・呼び名・
+        口調）は、ここを先に見る。
+        """
+        if not self._req_device():
+            return None
+        got = getattr(self.__dict__.get("_req"), "speaker", None)
+        return got if isinstance(got, tuple) else None
+
+    def _resolve_device_speaker(self, name: str) -> "tuple[str | None, str]":
+        """端末で押した名前を（人物 id、呼び名）に引く。求めの始めに 1 回だけ（人物表を毎回引かない）。
+
+        呼び名は家の顔ぶれと同じ（`get_person_name`）。当たらなければ (None, "")。
+        """
+        pid = None
+        if name:
+            with contextlib.suppress(Exception):
+                found = self._agent._pmm.find_person_id_by_name(name)
+                pid = found if isinstance(found, str) and found else None
+        if pid is None:
+            if name:
+                logger.info(
+                    "event-loop 端末の話者が家族に当たらないので、誰か分からないとして受ける"
+                )
+            return None, ""
+        call = name
+        with contextlib.suppress(Exception):
+            got = self._agent._pmm.get_person_name(pid)  # 家の顔ぶれと同じ呼び名にそろえる
+            call = got if isinstance(got, str) and got else name
+        return pid, call
+
+    def _recall_people(self) -> "list[str] | None":
+        """思い出す道具が記憶を引く人。家の求めは None（顔ぶれ）、端末の求めは端末の話者だけ（端-b 段 1-ろ-3）。"""
+        device = self._device_speaker()
+        if device is None:
+            return None
+        return [device[0]] if device[0] else []
+
+    def _speaker_id(self) -> "str | None":
+        """いまの求めの話者の人物 id（想起の面）。端末の求めは端末の話者、家の求めは家の話者。"""
+        device = self._device_speaker()
+        if device is not None:
+            return device[0]
+        return self._agent._pmm.current_speaker_id
+
     async def _ear(self) -> str:
         """耳の入口のいまの状態（`設計方針_パジュの状態` §3.1）。持ち主はタイマーと音楽で、`agent.mic_gate_reason` が
         その場で計算する。列から出た時刻に、入口で 1 回だけ読み、状態図の入口へ写してから、写しで判定する（決定ガ、ギ）。
@@ -5813,10 +5910,12 @@ class InformationProcessing:
         """黙っていたあいだに届いたものを O に残し、器に控える。"""
         agent = self._agent
         if trigger.kind == "会話入力":
-            who = self._current_speaker_name()
+            # 黙っていたあいだに聞くのは家の言葉だけ（端末の言葉は黙るのを見ない・b4）。開いている端末の求めの話者ではなく、
+            # 家の話者のものとして残す（端-b 段 1-ろ-3）。
+            who = self._home_speaker_name()
             text = trigger.query
             content = f"（黙っていたあいだに聞いた）{trigger.query}"
-            perspective = agent._conversation_perspective()
+            perspective = agent._conversation_perspective(home=True)
         elif trigger.kind == "機器":
             who = ""
             text = f"{trigger.query}（{trigger.result}）"
@@ -6179,6 +6278,10 @@ class InformationProcessing:
         family = str(getattr(agent, "_family_md", "") or "")
         raw = (claim or "").strip()
         if not raw:
+            return
+        if self._req_device():
+            # 端末の言葉は、家のそばに居る人のことを言っていない（端-b 段 1-ろ-3・b3）。
+            logger.info("event-loop 端末の求めなので、否定で家の顔ぶれを変えない")
             return
         name = resolve_claim(raw, family)
         if name is None:
@@ -6566,6 +6669,13 @@ class InformationProcessing:
         黙っている依頼の宛先を決めるのと、その依頼を誰の返事に掛けるかを決めるのは、
         同じ「誰が話しているか」なので 1 箇所で引く。
         """
+        device = self._device_speaker()
+        if device is not None:
+            return device[1]  # 端末の求めは、端末で押した話者（家の顔ぶれは見ない・端-b 段 1-ろ-3）
+        return self._home_speaker_name()
+
+    def _home_speaker_name(self) -> str:
+        """家の話者の名前（`_current_speaker_name` の家の側）。開いている端末の求めがあっても、家で聞いた言葉はこちらで読む。"""
         agent = self._agent
         with contextlib.suppress(Exception):
             for row in agent._pmm.presence_status():
@@ -6574,7 +6684,9 @@ class InformationProcessing:
         if getattr(agent._persons, "active_is_explicit", False):
             known = True
             with contextlib.suppress(Exception):
-                known = bool(agent.speaker_known())  # 切れていれば「分からない」（知-t）
+                known = bool(
+                    agent.home_speaker_known()
+                )  # 切れていれば「分からない」（知-t）。家の話者の寿命だけを見る（端-b 段 1-ろ-3）
             if known:
                 return str(agent._persons.active_name or "")
         return ""
@@ -6712,6 +6824,9 @@ class InformationProcessing:
         self._keep_prefetched()  # 先回りして調べた結果を知らせ待ちへ（記-ag 段 2）。求めの状態を消す前に
         pending_final = await self._close_final(outcome, text, timed_out=timed_out)
         self._stop_wait_watch()  # 待たせている時間の見張りは求めと一緒に閉じる（出-au 段 2）
+        # 会話の要約は裏で書くので、書き手と顔ぶれは閉じる前のいまの求めで決める（端末の話者は閉じる所で外す・端-b 段 1-ろ-3）。
+        perspective = agent._conversation_perspective()
+        self._req.speaker = None
         self._req.request_id = None
         await self._to_state("request_closed")  # 頭は何もしていない、耳は聞く（環-aw）
         self._req.live_version_id = None
@@ -6756,6 +6871,7 @@ class InformationProcessing:
                     memories=memories,
                     # 会話要約は背景で作られるので、向こうでこの関係の末尾に足す。
                     exchange_id=exchange_id,
+                    perspective=perspective,
                 ),
                 name="event-post-response",
             )

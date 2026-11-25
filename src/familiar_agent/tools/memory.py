@@ -1503,14 +1503,29 @@ class MemoryTool:
         ]
 
     async def call(
-        self, tool_name: str, tool_input: dict, *, exclude_ids: list[str] | None = None
+        self,
+        tool_name: str,
+        tool_input: dict,
+        *,
+        exclude_ids: list[str] | None = None,
+        people: "list[str] | None" = None,
     ) -> tuple[str, str | None]:
-        """`exclude_ids` は内部呼び出し用。自分が出した検索が自分自身を拾うのを防ぐ。"""
+        """`exclude_ids` は内部呼び出し用。自分が出した検索が自分自身を拾うのを防ぐ。
+
+        `people` は記憶を引く人（人物 id）。無ければ家のそばに居る人（顔ぶれ）。端末の求めは端末の話者だけを渡す
+        （家のそばに居る人は、端末の会話の相手ではない・端-b 段 1-ろ-3）。
+        """
         if tool_name == "recall":
-            return await self._recall(tool_input, exclude_ids=exclude_ids)
+            return await self._recall(tool_input, exclude_ids=exclude_ids, people=people)
         return f"Unknown memory tool: {tool_name}", None
 
-    async def _recall(self, inp: dict, *, exclude_ids: list[str] | None = None) -> tuple[str, None]:
+    async def _recall(
+        self,
+        inp: dict,
+        *,
+        exclude_ids: list[str] | None = None,
+        people: "list[str] | None" = None,
+    ) -> tuple[str, None]:
         query = inp["query"]
         n = int(inp.get("n", MemoryConfig().recall_k))
         all_results: list[dict] = []
@@ -1521,8 +1536,13 @@ class MemoryTool:
             m["_from"] = "自分"
             all_results.append(m)
 
-        # all present persons
-        for pid, mem in self._manager.get_all_present_memories():
+        # all present persons（端末の求めは端末の話者）
+        spaces = (
+            self._manager.get_all_present_memories()
+            if people is None
+            else [(pid, self._manager.get_memory_for(pid)) for pid in people]
+        )
+        for pid, mem in spaces:
             name = self._manager.get_person_name(pid)
             for m in await mem.recall_async(query, n=n, exclude_ids=exclude_ids):
                 m["_from"] = name

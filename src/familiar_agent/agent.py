@@ -165,6 +165,16 @@ def _loop_dif(agent):
 # Day summary prompt — condense a day's observations into a diary-like entry
 
 
+def _device_speaker(agent) -> "tuple[str | None, str] | None":
+    """端末の求めの話者（人物 id と呼び名）。家の求めや、ループが無ければ None（端-b 段 1-ろ-3）。
+
+    判定は `InformationProcessing._device_speaker` の 1 か所。ループは器の `__dict__` から引く（試験の偽の器は
+    ループを持たないので、家の求めとして読む）。
+    """
+    ip = agent.__dict__.get("_info_processing")
+    return ip._device_speaker() if ip is not None else None
+
+
 class EmbodiedAgent:
     """Real-world exploration agent using a pluggable LLM backend."""
 
@@ -465,8 +475,12 @@ class EmbodiedAgent:
         arousal: float = 0.0,
         memories: "list[Recalled] | None" = None,
         exchange_id: "int | None" = None,
+        perspective: "dict | None" = None,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply.
+
+        perspective: 会話要約の面の材料（書き手と顔ぶれ）。呼び手が求めを閉じる前に決めて渡す（裏で要約を作るあいだに次の
+        求めが始まっても、書き手を取り違えない・端-b 段 1-ろ-3）。無ければいまの `_conversation_perspective()`。
 
         exchange_id: 反復を閉じるときに同期で書いたやりとりの関係の id。会話要約を
             その末尾へ足す（無ければ足さない）。
@@ -529,7 +543,7 @@ class EmbodiedAgent:
                 ),
                 now=False,
                 arousal=emotion_a,
-                **self._conversation_perspective(),
+                **(perspective or self._conversation_perspective()),
             )
 
             # **答えの逐語は畳まない**（段 3）。畳むと想起の母集合から消え、残るのは
@@ -763,6 +777,17 @@ class EmbodiedAgent:
         実機 2026-09-18 12:34：`/speaker` から 2 分 22 秒・顔ぶれ表は空なのに、想起をパパの面で
         引き「パパ」と呼びかけ、版に「パパに聞かれ」と書いた。09-17 の「話者の指定は残す」は撤回。
         """
+        device = _device_speaker(self)
+        if device is not None:
+            # 端末の求めは、端末で押した話者で決まる（寿命で切れない・端-b 段 1-ろ-3）
+            return device[0] is not None
+        return self.home_speaker_known()
+
+    def home_speaker_known(self) -> bool:
+        """家の話者が分かっているか（`speaker_known` の家の側）。家の話者の寿命を切る見回り（`Tonic._expire_speaker`）が読む。
+
+        端末の求めのあいだも、家の話者の寿命は家の印だけで決める（端末の話者で延ばしも切りもしない・端-b 段 1-ろ-3）。
+        """
         pmm = getattr(self, "_pmm", None)
         if pmm is None:
             return False
@@ -782,13 +807,21 @@ class EmbodiedAgent:
         return False
 
     def _speaker_name_if_known(self) -> str:
-        """分かっているときだけ話者の名前（`/speaker` の明示）。話者ゲート・タイマーの `speaker`。"""
+        """分かっているときだけ話者の名前（`/speaker` の明示・端末の求めは端末で押した話者）。話者ゲート・タイマーの `speaker`。"""
+        device = _device_speaker(self)
+        if device is not None:
+            return device[1]
         if not self.speaker_known():
             return ""
         return self._persons.active_name if self._persons.active_is_explicit else ""
 
     def _active_memory(self) -> "ObservationMemory":
         """想起・書き込みの面。相手が分かっていればその人の面、分からなければ共通（自分）の面。"""
+        device = _device_speaker(self)
+        if device is not None:
+            return (
+                self._pmm.get_memory_for(device[0]) if device[0] else self._pmm.get_agent_memory()
+            )
         if not self.speaker_known():
             return self._pmm.get_agent_memory()
         return self._pmm.get_speaker_memory() or self._pmm.get_agent_memory()
@@ -804,7 +837,7 @@ class EmbodiedAgent:
             participants=self._pmm.get_present_ids(),
         )
 
-    def _conversation_perspective(self) -> dict:
+    def _conversation_perspective(self, *, home: bool = False) -> dict:
         """会話 summary の面の材料（P1）。書き手＝話者 floor DEFAULT・顔ぶれ。
 
         `scope` は 039 で列ごと落とした。誰との遣り取りかは `actor` と `present` の面が
@@ -812,9 +845,15 @@ class EmbodiedAgent:
         落とし、引数の受け渡しも撤去した（実在の人を指す 397 件は全件がその人の面を既に
         持っていた）。
         """
+        device = (
+            None if home else _device_speaker(self)
+        )  # `home`：家で聞いた言葉（黙っていたあいだ）を残すとき
+        if device is not None:
+            # 端末の会話は、家のそばに居る人は聞いていない（顔ぶれを添えない・端-b 段 1-ろ-3・仮）。
+            return dict(writer_id=device[0] or DEFAULT_PERSON_ID, participants=[])
         # 分からない相手の面は立てない（知-t）。
         speaker = (
-            self._pmm.current_speaker_id if self.speaker_known() else None
+            self._pmm.current_speaker_id if self.home_speaker_known() else None
         ) or DEFAULT_PERSON_ID
         return dict(
             writer_id=speaker,

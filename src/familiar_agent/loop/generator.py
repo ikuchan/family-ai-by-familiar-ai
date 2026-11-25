@@ -34,6 +34,19 @@ def _present_ctx(agent) -> str:
     未知の人」を表せない。PMM の顔ぶれは InsightFace が埋める identity であり、設計が定める
     在席（在/不在）とは別物である。**未知の顔ぶれの扱いは残課題 #8**（顔ぶれの精緻化）。
     """
+    ip = agent.__dict__.get("_info_processing")
+    device = ip._device_speaker() if ip is not None else None
+    if device is not None:
+        # 端末の求め（端-b 段 1-ろ-3・b3）。家の顔ぶれは渡さない（家のそばに居る人は、端末の会話の相手ではない）。
+        if device[1]:
+            return (
+                f'(present :speaker "{device[1]}" '
+                ':note "家の外かもしれない端末から話している。家のそばに居るとは限らない。名前は端末で選んだもの")'
+            )
+        return (
+            '(present :speaker "unconfirmed" :note "端末から話している。誰かは分からない。'
+            '名前で呼ばない（直近のやりとりの名前も当てにしない）。知りたければ聞いてよい")'
+        )
     pmm = getattr(agent, "_pmm", None)
     rows: list = []
     if pmm is not None:

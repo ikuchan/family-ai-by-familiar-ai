@@ -34,6 +34,7 @@ def _agent(*, set_at=None, confirmed_at=None, present_ids=(), speaker_id="id:パ
         else:
             setattr(a, attr, v)
     a.speaker_known = lambda: Agent.speaker_known(a)
+    a.home_speaker_known = lambda: Agent.home_speaker_known(a)
     return a
 
 

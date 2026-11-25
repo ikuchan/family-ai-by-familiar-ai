@@ -184,4 +184,5 @@ def test_a_switch_in_a_talk_survives_the_speaker_expiry():
     _push(ip, SABURO)
     a._persons.set_active.assert_called_once_with("さぶろう")
     a._pmm.current_speaker_id = "saburo"  # 偽の同期の代わり
+    a.home_speaker_known = lambda: EmbodiedAgent.home_speaker_known(a)
     assert EmbodiedAgent.speaker_known(a) is True
