@@ -64,6 +64,8 @@ capabilities:
       A family member who calls the agent at home while a device holds the window hears
       a short made busy tone at home (not while the house is silenced). Each connected
       device is told only whether it may talk now (when that changes), never who is talking.
+      On connecting, a device is told the agent's names (for hearing its name) and the
+      family call names to show as speaker buttons, read from ME.md and FAMILY.md each time.
       The reply goes only to that device as text (with the voice settings for the device
       to synthesise), never to the home speaker or screen, and the waiting cue is sent as
       its kind for the device to play. The speaker chosen on the device is who the agent

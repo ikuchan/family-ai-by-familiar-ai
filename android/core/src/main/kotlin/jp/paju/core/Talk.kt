@@ -18,12 +18,14 @@ enum class Screen {
 /**
  * 端末の話す画面の状態。届いた字（[on]）と、送った・切れた、だけで変わる。
  *
- * いまの話者は、押して代えるまで、つなぎ直しても同じ人のまま（§4 の 5）。
+ * いまの話者は、押して代えるまで、つなぎ直しても同じ人のまま（§4 の 5）。返事を待つのは、求めが閉じた・断られた・
+ * 切れた・送った言葉の時間切れ（[timedOut]・画面が時計で呼ぶ）まで。機体の返事が来ないまま待ち続けない。
  */
 class Talk(var speaker: String = "") {
     private var connected = false
     private var busy = false
     private var waiting = false
+    private var serial = 0
 
     val screen: Screen
         get() = when {
@@ -42,8 +44,15 @@ class Talk(var speaker: String = "") {
         }
     }
 
-    fun sent() {
+    /** 言葉を送った。返りの番号を、その言葉の時間切れ（[timedOut]）に渡す。 */
+    fun sent(): Int {
         waiting = true
+        return ++serial
+    }
+
+    /** `sent` が返した番号の言葉の時間切れ。そのあとに送った言葉があれば、待ちは解かない。 */
+    fun timedOut(sentSerial: Int) {
+        if (sentSerial == serial) waiting = false
     }
 
     fun disconnected() {

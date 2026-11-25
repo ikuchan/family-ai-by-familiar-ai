@@ -2,7 +2,8 @@
 
 アプリの試験（`android/core` の `WireFixtureTest`）も同じ見本を読む。どちらかが口の形を変えれば、もう一方の試験が落ちる。
 
-- 機体 → 端末：端末の口が送る字が、見本の字と 1 字も違わない。
+- 機体 → 端末：端末の口が送る字が、見本の字と 1 字も違わない。hello には、名前を呼ぶ合図に使う呼び名（`names`）と、
+  話者のボタンに並べる家族の呼び名（`speakers`）を添える（端-c c2・アプリに家族の名前を書かない）。
 - 端末 → 機体：アプリが作る字（見本）を、端末の口が言葉と話者として受ける。
 - 名前の合図：アプリの聞き分け（見本の `heard`）が、機体の門の文頭の名前の決まりと同じ。
 """
@@ -28,7 +29,14 @@ def _run(body, push=None):
         return None
 
     async def go():
-        link = DeviceLink(push or noop, {"model": "m", "voice": "v"}, host="127.0.0.1", port=0)
+        link = DeviceLink(
+            push or noop,
+            {"model": "m", "voice": "v"},
+            host="127.0.0.1",
+            port=0,
+            names=lambda: WIRE["names"],
+            speakers=lambda: ["ママ", "パパ"],
+        )
         assert await link.start()
         try:
             async with aiohttp.ClientSession() as session:

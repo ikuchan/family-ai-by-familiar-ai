@@ -238,6 +238,30 @@ def test_the_agent_opens_the_link_at_start_and_registers_it_as_the_device_listen
     asyncio.run(go())
 
 
+def test_the_agent_tells_devices_the_names_and_the_family_call_names():
+    """hello に、パジュの呼び名と、話者のボタンに並べる家族の呼び名（FAMILY.md・1 人 1 つ）を添える（端-c c2）。"""
+    from familiar_agent.config import DeviceLinkConfig
+
+    async def go():
+        a = _agent(DeviceLinkConfig(port=0))
+        a.config.agent_names = ["パジュ"]
+        a._family_md = "## ママ\n- **名前**：ママ\n- **呼び方**：ママ\n## パパ\n- **名前**：パパ\n- **呼び方**：パパ\n"
+        await a.start_autonomy()
+        link = a._device_link
+        try:
+            first = link._names(), link._speakers()
+            a._family_md += (
+                "## むすめ\n- **名前**：むすめ\n- **呼び方**：むすめ\n"  # /reload で読み直した
+            )
+            return first, link._speakers()
+        finally:
+            await a._close_device_link()
+
+    first, reloaded = asyncio.run(go())
+    assert first == (["パジュ"], ["ママ", "パパ"])
+    assert reloaded == ["ママ", "パパ", "むすめ"]  # つなぐたびに読む（読み直した家族も並ぶ）
+
+
 def test_no_link_when_it_is_turned_off():
     async def go():
         a = _agent(None)

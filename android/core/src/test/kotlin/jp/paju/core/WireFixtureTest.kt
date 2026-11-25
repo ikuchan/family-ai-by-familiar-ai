@@ -15,8 +15,8 @@ class WireFixtureTest {
         val fm = (wire["from_machine"] as List<String>).map { Wire.decode(it) }
         assertEquals(
             listOf(
-                FromMachine.Hello(model = "m", voice = "v", busy = false),
-                FromMachine.Hello(model = "m", voice = "v", busy = true),
+                FromMachine.Hello(model = "m", voice = "v", names = listOf("パジュ"), speakers = listOf("ママ", "パパ"), busy = false),
+                FromMachine.Hello(model = "m", voice = "v", names = listOf("パジュ"), speakers = listOf("ママ", "パパ"), busy = true),
                 FromMachine.Say(text = "[cheerful] おはよう！", display = "おはよう！"),
                 FromMachine.Cue(kind = "recalling"),
                 FromMachine.Closed,

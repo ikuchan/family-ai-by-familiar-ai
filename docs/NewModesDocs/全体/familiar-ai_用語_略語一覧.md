@@ -323,6 +323,8 @@
 | 端末のアプリ | — | Java Virtual Machine | JVM | Kotlin を動かす土台。アプリの中の決まり（`android/core`）は Android を読まず、機体の JVM で試験が回る。 |
 | 端末のアプリ | — | WebSocket | — | つないだまま字を行き来させる通信の決まり。端末は機体の端末の口（`io/device_link.py`）にこれでつなぐ（課題9 §6.6）。 |
 | 端末のアプリ | — | Android Debug Bridge | adb | 機体から USB などで端末へアプリを入れ、通信をつなぐ道具。`adb reverse` は、端末の番地への通信を機体へ回す。 |
+| 端末のアプリ | — | OkHttp | — | 端末のアプリが機体の端末の口へ WebSocket でつなぐための部品（4.12.0・2026-11-25 本人の承認）。つなぐときに Origin を付けない。 |
+| 端末のアプリ | — | density-independent pixel | dp | 画面の細かさに依らない長さの単位。短い辺が 600 dp 以上の端末をタブレットとして並べる（課題9 §8.5）。 |
 | 知覚 | — | WirePlumber | — | 家の音の仕組み（PipeWire）で、機器の使い方の設定と既定の出口を決める部品。設定を覚えたファイルは `~/.local/state/wireplumber/`。 |
 | 知覚 | — | pro-audio | — | WirePlumber での機器の使い方の設定の一つ。機器の口をそのまま出す。YAMAHA YVC-300 では、2026-11-14 の再起動のあと、選べるのが `off` とこれだけだった（知-bv）。 |
 | 知覚 | fp16 | float16 | — | 16 ビットの浮動小数。数の幅が狭く、Ruri では一部の記録が数にならない値（nan）になったので使わない（記-y・`根拠台帳` §68）。 |

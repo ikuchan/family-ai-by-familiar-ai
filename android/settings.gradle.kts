@@ -2,4 +2,4 @@
 pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
 dependencyResolutionManagement { repositories { google(); mavenCentral() } }
 rootProject.name = "paju-app"
-include(":core")
+include(":core", ":app")

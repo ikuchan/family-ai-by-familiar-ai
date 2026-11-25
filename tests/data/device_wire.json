@@ -1,8 +1,8 @@
 {
  "_": "端末の口の形の見本（課題9 §6.6）。機体の試験（tests/test_device_wire_is_shared.py）とアプリの試験（android/core）が同じものを読む。",
  "from_machine": [
-  "{\"type\": \"hello\", \"voice\": {\"model\": \"m\", \"voice\": \"v\"}, \"busy\": false}",
-  "{\"type\": \"hello\", \"voice\": {\"model\": \"m\", \"voice\": \"v\"}, \"busy\": true}",
+  "{\"type\": \"hello\", \"voice\": {\"model\": \"m\", \"voice\": \"v\"}, \"names\": [\"\\u30d1\\u30b8\\u30e5\"], \"speakers\": [\"\\u30de\\u30de\", \"\\u30d1\\u30d1\"], \"busy\": false}",
+  "{\"type\": \"hello\", \"voice\": {\"model\": \"m\", \"voice\": \"v\"}, \"names\": [\"\\u30d1\\u30b8\\u30e5\"], \"speakers\": [\"\\u30de\\u30de\", \"\\u30d1\\u30d1\"], \"busy\": true}",
   "{\"type\": \"say\", \"text\": \"[cheerful] \\u304a\\u306f\\u3088\\u3046\\uff01\", \"display\": \"\\u304a\\u306f\\u3088\\u3046\\uff01\"}",
   "{\"type\": \"cue\", \"kind\": \"recalling\"}",
   "{\"type\": \"closed\"}",

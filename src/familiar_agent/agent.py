@@ -1321,6 +1321,8 @@ class EmbodiedAgent:
             return
         from .io.device_link import DeviceLink
 
+        from .loop.rest_fold import family_call_names_of
+
         tts = self.config.tts
         link = DeviceLink(
             self.push_device_utterance,
@@ -1328,6 +1330,8 @@ class EmbodiedAgent:
             host=cfg.host,
             port=cfg.port,
             max_chars=cfg.max_chars,
+            names=lambda: list(self.config.agent_names),
+            speakers=lambda: list(family_call_names_of(self)),  # 話者のボタン（端-c c2）
         )
         try:
             opened = await link.start()

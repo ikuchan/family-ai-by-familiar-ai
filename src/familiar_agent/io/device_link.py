@@ -3,8 +3,9 @@
 端末（家族の Android のアプリ）は `/device?name=端末の名前` に WebSocket でつなぐ。待ち受けは入っている `aiohttp` の
 `web` で立てる（依存は増えない）。番地とポートは `DeviceLinkConfig`（既定は機体の中だけ・外から入れる道は端-d）。
 
-- つないだら、声の設定（`{"type": "hello", "voice": {"model": …, "voice": …}, "busy": …}`）を送る。返事の声は端末が合成に
-  頼む（課題9 §4 の 3 の続き）。鍵は送らない。
+- つないだら、声の設定（`{"type": "hello", "voice": {"model": …, "voice": …}, "names": …, "speakers": …, "busy": …}`）を送る。
+  返事の声は端末が合成に頼む（課題9 §4 の 3 の続き）。鍵は送らない。`names` はパジュの呼び名（端末が名前を呼ぶ合図に使う）、
+  `speakers` は話者のボタンに並べる家族の呼び名（端-c c2・アプリに家族の名前を書かない）。
 - 窓の持ち主が変わったら（`window`・状態図から I を通って届く）、各端末へ `{"type": "window", "busy": …}` を送る（端-b 段
   1-は）。`busy` は、窓が開いていて持ち主がその端末でないとき真で、端末は話す画面をグレーにする。その端末の値が変わった
   ときだけ送り、誰と話しているかは送らない。
@@ -74,10 +75,21 @@ class DeviceLink:
     """端末の口。`start` で待ち受け、`close` で止める。何度呼んでも二重には立たない。"""
 
     def __init__(
-        self, push: Push, voice: dict, *, host: str, port: int, max_chars: int = 2000
+        self,
+        push: Push,
+        voice: dict,
+        *,
+        host: str,
+        port: int,
+        max_chars: int = 2000,
+        names: "Callable[[], list[str]]" = list,
+        speakers: "Callable[[], list[str]]" = list,
     ) -> None:
         self._push = push
         self._voice = {"model": voice.get("model", ""), "voice": voice.get("voice", "")}
+        # つなぐたびに読む（/reload で読み直した ME.md・FAMILY.md も伝わる）
+        self._names = names  # パジュの呼び名（端末が名前を呼ぶ合図に使う）
+        self._speakers = speakers  # 話者のボタンに並べる家族の呼び名（ログには出さない）
         self._host = host
         self._port = port
         self._max_chars = max_chars
@@ -186,7 +198,15 @@ class DeviceLink:
                 await old.ws.close()
         logger.info("device-link 端末（%s）がつながった", tag(name))
         link.busy = self._busy_for(name)
-        link.send({"type": "hello", "voice": dict(self._voice), "busy": link.busy})
+        link.send(
+            {
+                "type": "hello",
+                "voice": dict(self._voice),
+                "names": list(self._names()),
+                "speakers": list(self._speakers()),
+                "busy": link.busy,
+            }
+        )
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:

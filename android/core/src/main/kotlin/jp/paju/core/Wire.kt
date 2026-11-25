@@ -2,8 +2,14 @@ package jp.paju.core
 
 /** 機体から届く字（課題9 §6.6）。 */
 sealed interface FromMachine {
-    /** つないだすぐあと。返事の声の設定と、いま話せないか。 */
-    data class Hello(val model: String, val voice: String, val busy: Boolean) : FromMachine
+    /** つないだすぐあと。返事の声の設定、パジュの呼び名（名前を呼ぶ合図）、話者のボタンに並べる家族の呼び名、いま話せないか。 */
+    data class Hello(
+        val model: String,
+        val voice: String,
+        val names: List<String>,
+        val speakers: List<String>,
+        val busy: Boolean,
+    ) : FromMachine
 
     /** 返事。`text` は声にする字（声のタグを残す）、`display` は画面の字。 */
     data class Say(val text: String, val display: String) : FromMachine
@@ -39,6 +45,8 @@ object Wire {
                 FromMachine.Hello(
                     model = v["model"] as? String ?: return null,
                     voice = v["voice"] as? String ?: return null,
+                    names = strings(m["names"]) ?: return null,
+                    speakers = strings(m["speakers"]) ?: return null,
                     busy = m["busy"] as? Boolean ?: return null,
                 )
             }
@@ -61,6 +69,9 @@ object Wire {
         if (t.isEmpty() || letters(t) > TEXT_MAX || letters(p) > NAME_MAX) return null
         return """{"type":"say","text":${Json.quote(t)},"speaker":${Json.quote(p)}}"""
     }
+
+    private fun strings(v: Any?): List<String>? =
+        (v as? List<*>)?.map { it as? String ?: return null }
 
     /** 機体（Python の `len`）と同じ数え方。絵文字も 1 字。 */
     private fun letters(s: String): Int = s.codePointCount(0, s.length)
