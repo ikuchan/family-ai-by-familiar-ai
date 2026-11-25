@@ -1124,6 +1124,11 @@ class DriveConfig:
             "思い出し、それを調べる。見る・首を向けるでもよい。したくなければ何もしなくてよい。",
         )
     )
+    # 記-ag 段 2・段 3（2026-11-25）：先回りして調べた結果の知らせ待ち（`loop/prefetch`・どれも仮）。
+    prefetch_default_hours: float = 12.0  # 古くなるまで（判定が返さなかったとき）
+    prefetch_max_hours: float = 24.0  # 古くなるまでの上限
+    prefetch_max_items: int = 10  # 知らせ待ちに置く数（古いほうから捨てる）
+    prefetch_check_sec: float = 30.0  # T の輪が知らせ待ちを見に行く間隔（輪は 0.5 秒ごと）
     voice_rest: str = field(
         default_factory=lambda: os.environ.get(
             "VOICE_REST",

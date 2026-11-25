@@ -16,9 +16,16 @@ capabilities:
       speed. An urge speaks aloud only when the camera sees someone; otherwise what it
       wanted to say is kept as a note to that person ("〇〇に言いたかったこと"), which recall
       brings back later and which is folded away once it has been said in a spoken reply.
-      Arrivals, departures and new notes are only recorded; they never make the agent
-      start talking. Implemented in `core/drive_dynamics.py`, `loop/tonic.py` and
-      `core/unsaid.py`.
+      When seeking fires, the agent recalls what the family cares about that has new
+      results or news (a match result, the weather) and looks it up before being asked.
+      A light model then judges whether the result is worth telling the family and how
+      many hours it stays fresh (12 by default, at most 24); if so, it waits as a notice.
+      While someone is nearby and the agent has not been asked to keep quiet, the waiting
+      notices that are still fresh are handed to the agent as a device turn
+      ("調べておいたこと"), which tells the person briefly; stale ones are dropped untold.
+      Apart from these notices, arrivals, departures and new notes are only recorded;
+      they never make the agent start talking. Implemented in `core/drive_dynamics.py`,
+      `loop/tonic.py`, `loop/prefetch.py` and `core/unsaid.py`.
     enabled: true
   - id: wake_word
     summary: Listen only after being called by name, both to speech and to typed text

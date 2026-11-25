@@ -209,7 +209,7 @@ flowchart TD
   C -->|1| UI
   CORE -->|1| AIF
   CORE -->|8| BOOT
-  CORE -->|11| C
+  CORE -->|12| C
   CORE -->|22| DIF
   CORE -->|13| GMD
   CORE -->|33| O
@@ -249,7 +249,7 @@ flowchart TD
   TIF -->|1| AIF
   TIF -->|1| BOOT
   TIF -->|1| C
-  TIF -->|10| CORE
+  TIF -->|11| CORE
   TIF -->|1| DIF
   TIF -->|7| GMD
   TIF -->|1| O

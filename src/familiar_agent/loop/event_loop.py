@@ -66,7 +66,7 @@ from ..store import intents as _intents
 from .intent_ledger import IntentLedger
 from .paju_state import EAR_MUSIC, EAR_OPEN, EAR_TIMER, PajuState
 from .request import Lookup, Request
-from . import finals, rest_about, widen
+from . import finals, prefetch, rest_about, widen
 from .actions import (
     _action_family,
     _ALARM_ACTIONS,
@@ -1686,6 +1686,24 @@ class InformationProcessing:
                 )
                 or "入力なし",
             )
+
+    def _keep_prefetched(self) -> None:
+        """SEEKING の求めで調べものの結果が届いていれば、知らせる値打ちを裏で判定させ、知らせ待ちに置く（記-ag 段 2）。
+
+        見るのは閉じた時点で届いている結果だけ（閉じたあとに届いた結果は捨てる）。打ち切られた求めは見ない（打ち切られた
+        時点で、求めの状態はもう次の求めのもの）。判定は軽量LLM（`prefetch.keep`）で、閉じるのを待たせない。打ち切り（`_drop_work`）で消えないよう、申告と同じ
+        `_verdict_tasks` に置く（調べ終えた結果は、あとから古くならない）。
+        """
+        if self._req.trigger_kind != "情動" or self._req.fired_axis != "seeking":
+            return
+        results = self._search_results()
+        if not results:
+            return
+        task = asyncio.create_task(
+            prefetch.keep(self._agent, results, now=datetime.now(timezone.utc))
+        )
+        self._verdict_tasks.add(task)
+        task.add_done_callback(self._verdict_tasks.discard)
 
     def _search_results(self) -> str:
         """この求めで届いた調べもの（search_deferred）の結果を、深く調べるの材料の形で（出-dh）。"""
@@ -6458,10 +6476,11 @@ class InformationProcessing:
             return
         if spoken and self._req.told_unsaid:
             await self._fold_told(list(self._req.told_unsaid))
-        if spoken and text and (self._req.trigger_kind == "発話" or self._talking()):
+        prefetched = self._req.trigger_kind == "機器" and prefetch.is_turn(self._req.request_text)
+        if spoken and text and (self._req.trigger_kind == "発話" or self._talking() or prefetched):
             # 声になった返事だけを、窓の会話に足す（環-ar 段 A）。声にしなかった文は相手に届いていない。人の言葉への
             # 返事と、パジュから話しかけた言葉だけで、タイマーなどの知らせは会話の行にしない（確認の問いは
-            # `_ask_confirm_aloud` が足す）。
+            # `_ask_confirm_aloud` が足す）。先回りの知らせは、聞いた人が答えやすいので会話の行にする（記-ag 段 3）。
             to = self._current_speaker_name()
             self._talk_line(self._me(to), text, str(answer_id or ""))
         self._note_record(answer_id, "答え" if spoken else "独白")
@@ -6469,6 +6488,7 @@ class InformationProcessing:
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
         # 畳む（未実装・`設計方針_求めの版チェーン`）。
         # **最終版を書く**（記-t 段 1）。求めの状態を消す前に組む。収まれば閉じたその場で、超えれば下で背景に出す。
+        self._keep_prefetched()  # 先回りして調べた結果を知らせ待ちへ（記-ag 段 2）。求めの状態を消す前に
         pending_final = await self._close_final(outcome, text, timed_out=timed_out)
         self._stop_wait_watch()  # 待たせている時間の見張りは求めと一緒に閉じる（出-au 段 2）
         self._req.request_id = None

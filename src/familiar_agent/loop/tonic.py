@@ -17,7 +17,7 @@ import contextlib
 import logging
 import time
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..config import DriveConfig
 from ..core import drive_dynamics as dd
@@ -31,6 +31,7 @@ from . import (
     alarm_watch,
     music_watch,
     notes_watch,
+    prefetch,
     schedule_watch,
     stopwatch_watch,
     timer_watch,
@@ -41,6 +42,7 @@ from ..core import credit
 from ..core.redact import tag
 
 logger = logging.getLogger(__name__)
+
 
 # 課題5 A節の確定値。蓄積式 drive_i ← clip(drive_i + rate·mult·learn·g_D·P_T) にも入るので、
 # 周期を変えると蓄積そのものが変わる。勝手に動かさない。
@@ -335,6 +337,39 @@ class Tonic:
             if said is not None:
                 told.add(name)  # 黙っていて dif が止めた（None）ときは、明けたら伝える
 
+    async def _maybe_tell_prefetched(self) -> None:
+        """先回りして調べておいたことを、そばに人が居れば知らせる（記-ag 段 3・`設計方針_先回りして調べておく`）。
+
+        `DriveConfig.prefetch_check_sec` に 1 回、居て、寝ていず、音楽が鳴っていず、「黙っていて」のあいだでなければ、知らせ待ちのうち古くなっていないものを取り出し、`機器` の求めを積む。
+        話すかと言い方は主LLM が決め、在席の門はいつものまま（`passes_gate` なし）。居ないあいだは知らせ待ちに残す。
+        """
+        now = time.monotonic()
+        last = getattr(self, "_prefetch_checked_at", None)
+        if last is not None and now - last < self._cfg.prefetch_check_sec:
+            return  # DB を毎周は読まない
+        if not self._someone_here():
+            return
+        self._prefetch_checked_at = now
+        sm = getattr(self._agent, "paju_state", None)
+        try:
+            if music_playing(self._agent):
+                return  # 音楽のあいだは話さない（知らせ待ちに残す）
+            if sm is not None and (sm.silenced_outside() or sm.is_sleeping()):
+                return
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "先回りの知らせ：黙っているか寝ているかを確かめられないので控える", exc_info=True
+            )
+            return
+        try:
+            whats = await asyncio.to_thread(prefetch.take_due, now=datetime.now(timezone.utc))
+        except Exception:  # noqa: BLE001
+            logger.warning("先回りの知らせ待ちを読めなかった", exc_info=True)
+            return
+        if whats:
+            logger.info("先回りして調べておいたこと %d 件を知らせる求めを積む", len(whats))
+            self._dif.device(prefetch.KIND, prefetch.content(whats))
+
     def _notes_due(self, *, now: float) -> bool:
         """パジュ宛てのメモを読む頃合いか（`notes_watch.INTERVAL_SEC` に 1 回・知-g-ろ）。"""
         last = getattr(self, "_notes_checked_at", None)
@@ -535,6 +570,7 @@ class Tonic:
                 dt, last = now - last, now
                 self.scan_presence()
                 await self._maybe_tell_credit()
+                await self._maybe_tell_prefetched()
                 await self._maybe_check_notes(now)
                 await self._maybe_check_schedule(now)
                 self._fire_timers()

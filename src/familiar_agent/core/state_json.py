@@ -16,6 +16,14 @@ logger = logging.getLogger(__name__)
 
 def read(key: str) -> object:
     """その鍵の JSON。無い・読めなければ None。"""
+    return read_checked(key)[1]
+
+
+def read_checked(key: str) -> "tuple[bool, object]":
+    """（読めたか, その鍵の JSON）。無いときは (True, None)、読めないときは (False, None)。
+
+    「無い」と「読めない」を分けたい呼び手用（読めないときに空として上書きしない・記-ag）。
+    """
     try:
         from ..db import get_db
 
@@ -26,12 +34,12 @@ def read(key: str) -> object:
                 cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", (key,))
                 row = cur.fetchone()
         if not row:
-            return None
+            return True, None
         raw = row["value_json"] if isinstance(row, dict) else row[0]
-        return json.loads(raw) if isinstance(raw, str) else raw
-    except Exception as e:  # noqa: BLE001
-        logger.warning("agent_state の %s を読めなかった: %s", key, e)
-        return None
+        return True, (json.loads(raw) if isinstance(raw, str) else raw)
+    except Exception:  # noqa: BLE001
+        logger.warning("agent_state の %s を読めなかった", key, exc_info=True)
+        return False, None
 
 
 def write(key: str, value: object) -> bool:
