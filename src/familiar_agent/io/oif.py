@@ -392,6 +392,18 @@ class OIF:
         logger.debug("OIF fact_pending ← %d → %d 種", limit, len(got))
         return got
 
+    def replace_candidates(self, since, *, per_key: int, min_cos: float) -> list:
+        """事実の置き換えの候補の組（記-ah 段 2）。"""
+        got = self._memory.replace_candidates(since, per_key=per_key, min_cos=min_cos)
+        logger.debug("OIF replace_candidates → %d 組", len(got))
+        return got
+
+    def record_replacement(self, old_obs, old_key, new_obs, new_key, *, valid_at) -> "int | None":
+        """新しい記録の事実が古い記録の事実を置き換えた、を書く（記-ah）。古い記録は隠さない。"""
+        return self._memory.record_replacement(
+            old_obs, old_key, new_obs, new_key, valid_at=valid_at
+        )
+
     def fact_ready(self) -> bool:
         """鍵の文を Ruri で点にできるか（記-ad）。"""
         return self._memory.fact_ready()

@@ -130,3 +130,50 @@ def test_a_key_of_another_record_is_not_written(store):
     assert store.record_replacement(old, other_key, new, new_key, valid_at=at) is None
     assert store.record_replacement("", old_key, new, new_key, valid_at=at) is None
     assert store.replacements_of([old]) == {}
+
+
+def _stamp(store, obs, at, ran_at):
+    with store._ctx.lock:
+        conn = _conn(store)
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE observations SET timestamp = %s WHERE id = %s", (at.isoformat(), obs)
+            )
+            cur.execute(
+                "INSERT INTO obs_fact_runs (obs_id, model, n_facts, extracted_at) VALUES (%s, 'm', 1, %s) "
+                "ON CONFLICT (obs_id) DO UPDATE SET extracted_at = EXCLUDED.extracted_at",
+                (obs, ran_at),
+            )
+        conn.commit()
+
+
+def test_candidates_pair_tonights_topics_with_near_older_ones():
+    """その晩に抜いた話題の鍵に、意味の近い古い記録の鍵を組にする。古い側の鍵は、その晩より前に抜いたものでもよい。"""
+    from familiar_agent.store import fact_keys
+
+    db = get_db()
+    store = RelationStore(
+        StoreContext(db=db, lock=db.lock, person_id=DEFAULT_PERSON_ID, embedder=None)
+    )
+    old, old_key = _record_with_key(store, "ママ：サッカーに通ってる", "さぶろうの習い事")
+    new, new_key = _record_with_key(store, "ママ：先月から水泳", "さぶろうの習い事")
+    night = datetime(2026, 11, 25, 1, 0, tzinfo=timezone.utc)
+    _stamp(
+        store,
+        old,
+        datetime(2026, 9, 1, tzinfo=timezone.utc),
+        datetime(2026, 9, 2, tzinfo=timezone.utc),
+    )
+    _stamp(
+        store,
+        new,
+        datetime(2026, 11, 20, tzinfo=timezone.utc),
+        datetime(2026, 11, 25, 2, 0, tzinfo=timezone.utc),
+    )
+    got = fact_keys.replace_candidates(store._ctx, night, per_key=3, min_cos=0.9)
+    mine = [p for p in got if p.new_obs == new]
+    assert [(p.old_obs, p.old_key, p.new_key, p.topic) for p in mine] == [
+        (old, old_key, new_key, "さぶろうの習い事")
+    ]
+    # **反証の側**：古い記録が新しい側になる組（その晩に抜いていない）は出ない
+    assert not [p for p in got if p.new_obs == old]

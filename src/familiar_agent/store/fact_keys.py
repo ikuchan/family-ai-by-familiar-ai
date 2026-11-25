@@ -116,3 +116,58 @@ def write(ctx, rows: "list[KeyRow]", model: str) -> "tuple[set[str], int]":
             conn.rollback()
             raise
     return done, written
+
+
+def replace_candidates(ctx, since, *, per_key: int, min_cos: float) -> list:
+    """置き換えの候補の組（記-ah 段 2・`core/fact_replace.Pair`）。
+
+    `since` より後に抜いた記録の「答えを隠す向き」の鍵の文（話題）ごとに、それより古い別の記録の同じ向きの鍵で、
+    近さ（Ruri のコサイン）が `min_cos` 以上のものを、近い順に `per_key` 件まで。どちらの記録も隠れていないものだけ。
+    """
+    from ..core.fact_replace import Pair
+
+    live_n, live_o = not_hidden("n"), not_hidden("o")
+    with ctx.lock:
+        conn = ctx.conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT nk.id AS new_key, nk.sentence AS topic, n.id AS new_obs, n.content AS new_text,
+                       n.timestamp::timestamptz AS new_at,
+                       c.old_key, c.old_obs, c.old_text, c.old_at
+                FROM obs_fact_runs r
+                JOIN observations n ON n.id = r.obs_id
+                JOIN obs_fact_keys nk ON nk.obs_id = n.id AND nk.side = '答え'
+                CROSS JOIN LATERAL (
+                    SELECT ok.id AS old_key, o.id AS old_obs, o.content AS old_text,
+                           o.timestamp::timestamptz AS old_at
+                    FROM obs_fact_keys ok
+                    JOIN observations o ON o.id = ok.obs_id
+                    WHERE ok.side = '答え' AND o.id <> n.id AND {live_o}
+                      AND o.content IS DISTINCT FROM n.content  -- 同じ本文の写しで枠を埋めない
+                      AND o.timestamp::timestamptz < n.timestamp::timestamptz
+                      AND 1 - (ok.vector <=> nk.vector) >= %(min_cos)s
+                    ORDER BY ok.vector <=> nk.vector
+                    LIMIT %(per_key)s
+                ) c
+                WHERE r.extracted_at > %(since)s AND {live_n}
+                ORDER BY n.timestamp, nk.id
+                """,
+                {"since": since, "min_cos": float(min_cos), "per_key": int(per_key)},
+            )
+            rows = cur.fetchall()
+        conn.rollback()  # 読むだけの取引を閉じる（共有の接続に錠を残さない）
+    return [
+        Pair(
+            topic=str(r["topic"]),
+            old_obs=str(r["old_obs"]),
+            old_key=int(r["old_key"]),
+            old_text=str(r["old_text"] or ""),
+            old_at=r["old_at"],
+            new_obs=str(r["new_obs"]),
+            new_key=int(r["new_key"]),
+            new_text=str(r["new_text"] or ""),
+            new_at=r["new_at"],
+        )
+        for r in rows
+    ]

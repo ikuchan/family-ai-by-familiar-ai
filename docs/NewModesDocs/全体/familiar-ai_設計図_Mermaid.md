@@ -233,16 +233,16 @@ flowchart TD
   O -->|2| B
   O -->|13| BOOT
   O -->|4| C
-  O -->|11| CORE
+  O -->|12| CORE
   O -->|7| GMD
   O -->|1| RES
   O -->|6| W
   RES -->|18| CORE
   RES -->|1| GMD
   RES -->|1| W
-  REST -->|7| C
-  REST -->|32| CORE
-  REST -->|20| O
+  REST -->|8| C
+  REST -->|34| CORE
+  REST -->|22| O
   REST -->|11| RES
   SS -->|1| BOOT
   SS -->|6| CORE

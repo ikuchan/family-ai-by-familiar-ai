@@ -16,10 +16,12 @@ from __future__ import annotations
 import logging
 
 from ..io.oif import MI
+from ..store import clock
 from .rest_capabilities import redefine_capabilities
 from .rest_core import fold_core
 from .rest_about import add_about_tonight
 from .rest_facts import extract_facts_tonight
+from .rest_replace import judge as judge_replacements
 from .rest_calendar import write_calendar
 from .rest_fold import fold_since_last_rest
 from .rest_family_now import update_family_now
@@ -114,6 +116,7 @@ async def run_rest_pass(agent) -> str:
         logger.exception("rest 層 1 の経験繋がりに失敗（次の回に調べ直す）: %s", e)
         parts.append("経験繋がりを張れなかった")
     # 層 1 の⑤：事実を抜く。記録の本文から事実を抜いて鍵の文にし、想起の鍵の軸にする（記-ad）。
+    facts_since = clock.now_utc()  # この晩に抜いた事実だけを、置き換えの判定にかける（記-ah）
     try:
         f = await extract_facts_tonight(agent)
         if f.skipped:
@@ -128,6 +131,19 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 1 の事実を抜くのに失敗（次の晩に持ち越す）: %s", e)
         parts.append("事実を抜けなかった")
+    # 層 1 の⑤の続き：この晩に抜いた事実が、古い記録の事実を置き換えたかを判定する（記-ah 段 2）。古い記録は隠さない。
+    try:
+        rp = await judge_replacements(agent, since=facts_since)
+        if rp.skipped:
+            parts.append(f"事実の置き換えを調べなかった（{rp.skipped}）")
+        elif rp.pairs:
+            parts.append(
+                f"事実の置き換えを {rp.pairs} 組調べ、{rp.replaced} 組を置き換えとした"
+                + (f"（失敗 {rp.failed_batches} 束）" if rp.failed_batches else "")
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 層 1 の事実の置き換えの判定に失敗: %s", e)
+        parts.append("事実の置き換えを調べられなかった")
     # 家族のいまの様子：日々の蒸留の関係のまとめを 10 本ずつ重ねて書き直す（知-ad）。`FAMILY.md` は書き換えない。
     try:
         fam = await update_family_now(agent)

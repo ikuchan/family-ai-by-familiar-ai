@@ -570,6 +570,18 @@ class ObservationMemory:
         """鍵の文の抜き待ちの本文（記-ad・`store/fact_keys.pending`）。"""
         return fact_keys_store.pending(self._ctx, limit)
 
+    def replace_candidates(self, since, *, per_key: int, min_cos: float) -> list:
+        """事実の置き換えの候補の組（記-ah 段 2・`store/fact_keys.replace_candidates`）。"""
+        return fact_keys_store.replace_candidates(
+            self._ctx, since, per_key=per_key, min_cos=min_cos
+        )
+
+    def record_replacement(self, old_obs, old_key, new_obs, new_key, *, valid_at) -> "int | None":
+        """置き換えの関係を書く（記-ah・`RelationStore.record_replacement`）。"""
+        return RelationStore(self._ctx).record_replacement(
+            old_obs, old_key, new_obs, new_key, valid_at=valid_at
+        )
+
     def fact_ready(self) -> bool:
         """鍵の文を Ruri で点にできるか（記-ad）。読み込めなければ、事実を抜いても書けない。"""
         return self._ruri.ensure() is not None
