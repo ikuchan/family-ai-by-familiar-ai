@@ -31,6 +31,9 @@ sealed interface FromMachine {
 
     /** 端末の時計アプリでアラームを掛ける（端-c c6a・b2）。時と分は端末の時刻（過ぎていれば翌日に鳴るのは時計アプリ）。 */
     data class Alarm(val hour: Int, val minute: Int, val label: String) : FromMachine
+
+    /** 端末の Spotify を開いて示す（端-c c6b 段 1）。`uri` は Spotify の URI で、空なら Spotify を開くだけ。 */
+    data class Music(val uri: String) : FromMachine
 }
 
 /** 端末の口の字の読み書き。上限は機体の `io/device_link.py` と同じ。 */
@@ -73,9 +76,17 @@ object Wire {
                 minute = whole(m["minute"], 0..59) ?: return null,
                 label = m["label"] as? String ?: return null,
             )
+            "music" -> FromMachine.Music((m["uri"] as? String)?.takeIf(::isSpotify) ?: return null)
             else -> null
         }
     }
+
+    /** Spotify の URI（`spotify:` のあとに空白の無い ASCII の字が 1 字以上・機体の `_device_music` と同じ）か空だけを受ける。
+     * 機体の字でほかのアプリやページを開かせない。 */
+    private fun isSpotify(uri: String): Boolean =
+        uri.isEmpty() || (uri.length > PREFIX.length && uri.startsWith(PREFIX) && uri.all { it in '!'..'~' })
+
+    private const val PREFIX = "spotify:"
 
     /** 言葉と押した話者を、機体へ送る字にする。機体が捨てる言葉（空・長すぎる）は null。 */
     fun encodeSay(text: String, speaker: String): String? {

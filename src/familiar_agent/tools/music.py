@@ -172,8 +172,6 @@ class MusicTool:
         正解はあなたが作ったプレイリストや、そこに入っている人であることが多い（本人）。返りで、何をどこから
         見つけたかを言う。
         """
-        from ..core import music_catalog
-
         said = str(tool_input.get("name") or "").strip()
         if not said or music_rules.means_no_name(said):  # 「音楽」「曲」は名前ではない（知-al (2)）
             if await self._really_playing():
@@ -182,6 +180,36 @@ class MusicTool:
                 logger.info("音楽：鳴っているので、曲名の無い続きはかけ直さなかった")
                 return "いま鳴っているので、そのまま鳴らしている（続きはかけ直さない）", True
             return await self._resume()
+        found = await self.find(tool_input)
+        if isinstance(found, str):
+            return found, False
+        heading, uri, shuffle = found
+        failed = await self._start(heading, uri)
+        if failed is not None:
+            return failed
+        bus = self._bus()
+        if ":playlist:" in uri or ":album:" in uri or ":artist:" in uri:
+            set_ok = await self._io.set_shuffle(bus, shuffle)
+            # 頭から鳴らし始めてからランダムを入れるので、最初の 1 曲がいつも 1 番目だった（10/16 実機・83 曲中 1 番目）。
+            # 入ったら 1 曲飛ばす（知-bf・2026-10-16・本人の決定イ）。1 番目の曲が一瞬鳴る。
+            if shuffle and set_ok:
+                await self._io.next_track(bus)
+                logger.info("音楽：ランダムを入れ、頭の 1 曲を飛ばした")
+            elif shuffle:
+                logger.info("音楽：ランダムを入れられなかった（MPRIS の口が無い）")
+        self._mark(True)
+        how = "ランダムで" if shuffle else ""
+        logger.info("音楽：%s%sかけ始めた（%s）", heading, how or "", uri)
+        return f"{heading}{how}かけ始めた", True
+
+    async def find(self, tool_input: dict) -> "tuple[str, str, bool] | str":
+        """名前から (返りの見出し, URI, ランダムか) を探す（`_play` と端末の求め・端-c c6b）。見つからなければ断りの文。
+
+        鳴らさない。探す順は `_play` の説明のとおり。名前が無い（続きをかける）ときは呼ばない。
+        """
+        from ..core import music_catalog
+
+        said = str(tool_input.get("name") or "").strip()
         order = str(tool_input.get("order") or "")
         catalog = music_catalog.stored()
         local = music_rules.find_local(said, self._table(), catalog)
@@ -200,26 +228,10 @@ class MusicTool:
         else:
             found = await self._search(said, str(tool_input.get("kind") or ""), catalog)
             if found is None:
-                return f"「{said}」は見つからなかったので、かけられない", False
+                return f"「{said}」は見つからなかったので、かけられない"
             heading, uri = found
             shuffle = music_rules.wants_shuffle(order, False)
-        failed = await self._start(heading, uri)
-        if failed is not None:
-            return failed
-        bus = self._bus()
-        if ":playlist:" in uri or ":album:" in uri or ":artist:" in uri:
-            set_ok = await self._io.set_shuffle(bus, shuffle)
-            # 頭から鳴らし始めてからランダムを入れるので、最初の 1 曲がいつも 1 番目だった（10/16 実機・83 曲中 1 番目）。
-            # 入ったら 1 曲飛ばす（知-bf・2026-10-16・本人の決定イ）。1 番目の曲が一瞬鳴る。
-            if shuffle and set_ok:
-                await self._io.next_track(bus)
-                logger.info("音楽：ランダムを入れ、頭の 1 曲を飛ばした")
-            elif shuffle:
-                logger.info("音楽：ランダムを入れられなかった（MPRIS の口が無い）")
-        self._mark(True)
-        how = "ランダムで" if shuffle else ""
-        logger.info("音楽：%s%sかけ始めた（%s）", heading, how or "", uri)
-        return f"{heading}{how}かけ始めた", True
+        return heading, uri, shuffle
 
     async def _start(self, heading: str, uri: str) -> "tuple[str, bool] | None":
         """`uri` を鳴らし始める。鳴らせたら None、できなければ返りの文（失敗）。`_play` とすすめた曲の返事が使う。

@@ -74,9 +74,15 @@ capabilities:
       (`set_timer`, `set_alarm`) is handed to that device's clock app, with no question
       before setting it: it rings and is stopped on the device, never at home, and is not
       shown as [タイマー] or [アラーム], so the agent does not know whether it was set or
-      how long is left. Other tools that make sound at home (stopping, pausing or cancelling
-      a timer or an alarm, stopwatch, music, printing) and the person's own tools (vault,
-      journal) are not offered to a device request. A home "be quiet" does not stop device replies and
+      how long is left. Music asked from a device (`play_music`) is looked for as at home
+      but opened in that device's Spotify app, never played at home: the family member
+      presses play there (with no name, Spotify is only opened), and the agent does not know
+      whether it plays; the device opens Spotify only when the request has closed, and the
+      agent tells what it opened and that play is pressed on the device.
+      Other tools that make sound at home (stopping, pausing or cancelling a timer or an
+      alarm, stopwatch, stopping, skipping or turning music up or down, answering a
+      suggested song, printing) and the person's own tools (vault, journal) are not offered
+      to a device request. A home "be quiet" does not stop device replies and
       is not lifted from a device. For now the agent listens only on this machine
       (127.0.0.1:8765); the private route for family devices from outside comes later.
       Implemented in `io/device_link.py`, `core/device_clock.py` and `loop/event_loop.py`.
@@ -296,7 +302,8 @@ capabilities:
       you already have; it says what it found and where. Played shuffled, a playlist
       skips its first song so it does not always start from the top. With no name ("音楽かけて") it
       resumes what Spotify had stopped, and says so if there was nothing to resume. While music is
-      already playing, a request with no name does not restart it; the music keeps playing. `stop_music`, `next_track` and
+      already playing, a request with no name does not restart it; the music keeps playing.
+      Asked from a device, it is opened in that device's Spotify app instead (see device_link). `stop_music`, `next_track` and
       `music_volume` stop it, skip a song and turn it up or down. It remembers the volume you
       last set or stopped at and plays at that volume the next time. The agent never starts
       music by itself: every night it picks one song you do not have yet, close to the

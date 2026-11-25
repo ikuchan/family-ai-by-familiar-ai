@@ -84,6 +84,7 @@ from .actions import (
     _LOOKUP_ACTIONS,
     _MCP_LOOKUPS,
     _DEVICE_CLOCK_ACTIONS,
+    _DEVICE_MUSIC_ACTIONS,
     _HOME_ONLY_ACTIONS,
     _MUSIC_ACTIONS,
     _music_def,
@@ -1840,6 +1841,10 @@ class InformationProcessing:
             # 端末の求めのタイマーとアラームは端末の時計アプリへ（端-c c6a）。家の確認待ちは見ない（端末の確認は聞かない）
             self._device_clock(action, tool_input, query, intent_id, index)
             return
+        if action in _DEVICE_MUSIC_ACTIONS and self._req_device():
+            # 端末の求めの音楽は端末の Spotify で開く（端-c c6b 段 1）。家では鳴らさない
+            await self._device_music(action, tool_input, query, intent_id, index)
+            return
         # **確認待ちのあいだ、掛け直しは機械が落とす**（出-ag-ろ・2026-09-21）。
         # 言葉で頼んでも守られなかった——1 回の「3 分測って」で `set_timer` が 3 回投げられ、
         # 確認待ちを作り直したうえで「セットしました」と言った（実機 17:34・掛かっていない）。
@@ -3426,7 +3431,8 @@ class InformationProcessing:
         読むのは T の見張りと同じ口（`music_watch.observe`）。主LLM が「いま何の曲？」に答えられるように。
         """
         tool = getattr(self._agent, "_music_tool", None)
-        if tool is None or getattr(self._agent, "_music_state", None) is None:
+        if tool is None or getattr(self._agent, "_music_state", None) is None or self._req_device():
+            # 端末の求めには家の `[音楽]` を見せない（端-c c6b・「もう鳴っている」と端末の頼みを断らない）
             return ""
         from ..tools.music import NOT_PLAYING
 
@@ -3440,6 +3446,11 @@ class InformationProcessing:
         except Exception:  # noqa: BLE001
             logger.warning("event-loop 音楽の枠を組めなかった", exc_info=True)
             return ""
+
+    @staticmethod
+    async def _no_music() -> "dict | None":
+        """端末の求めの調停に渡す、家の音楽の様子の代わり（読めない＝None・端-c c6b）。"""
+        return None
 
     async def _music_status(self) -> "dict | None":
         """いまの音楽の様子（鳴っているか・曲名・アーティスト・音量）。パジュがかけていなければ空の辞書、読めなければ None。
@@ -4144,9 +4155,10 @@ class InformationProcessing:
             silenced=bool(silence_note),
             talking=self._talking(),
             suggestion_ctx=self._suggestion_frame() if self._talking() else "",  # 知-aq
-            music_status=self._music_status,  # 「いま何の曲？」に答えるときだけ読む（出-bf）
-            # 鳴っているあいだは曲名の無い play_music を使わない（知-bq）
-            music_playing=music_playing(agent),
+            # 「いま何の曲？」に答えるときだけ読む（出-bf）。端末の求めには家の音楽を見せない（端-c c6b・端末の Spotify は別物）
+            music_status=self._no_music if self._req_device() else self._music_status,
+            # 鳴っているあいだは曲名の無い play_music を使わない（知-bq）。端末の求めでは家で鳴っていても端末の Spotify を開く
+            music_playing=music_playing(agent) and not self._req_device(),
             jev_workspace=jev_workspace,
             jev_utterance=jev_utterance,
             window_ctx=window_ctx,
@@ -5163,6 +5175,55 @@ class InformationProcessing:
                 intent_id=intent_id,
                 index=index,
                 failed=failed,
+            )
+        )
+
+    async def _device_music(
+        self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int
+    ) -> None:
+        """端末の求めの音楽を、頼んだ端末の Spotify で開く（端-c c6b 段 1・b2）。
+
+        探し方は家と同じ（`MusicTool.find`）で、家では鳴らさない（`_play` を通らないので、spotifyd も家の機器も、鳴っている
+        印も音量も触らない）。ランダムか順番かは端末の Spotify に任せる。名前が無ければ、家の続きをかけず、端末の Spotify を
+        開くだけにする。機体は端末で鳴ったかを知らないので、返りは「開く」と書く。
+        """
+        from ..core import music_rules
+        from ..core.completion_kind import OPENED_ON_DEVICE
+
+        tool = getattr(self._agent, "_music_tool", None)
+        said = str(tool_input.get("name") or "").strip()
+        uri: "str | None" = None
+        if action in self._req.spent_actions:
+            result = "この頼みでは、もう端末の Spotify に頼んである。頼み直さない"
+        elif tool is None:
+            result = "音楽の道具が無い"
+        elif not said or music_rules.means_no_name(said):
+            uri, result = "", f"{OPENED_ON_DEVICE}を開く（何をかけるかは端末で選んでもらう）"
+        else:
+            found = await tool.find(tool_input)
+            if isinstance(found, str):
+                result = found
+            else:
+                heading, uri, _shuffle = found
+                result = f"{heading}、{OPENED_ON_DEVICE}で開く（家では鳴らさない・再生は端末で押してもらう）"
+                if tool_input.get("order"):
+                    result += "。ランダムか順番かは端末の Spotify のまま（機体からは変えられない）"
+                if not re.fullmatch(r"spotify:[!-~]+", uri):
+                    # 端末は Spotify の URI しか開かない（`Wire`）。送っても開かないのに「開く」と言わない
+                    logger.warning("event-loop 端末の Spotify で開けない URI だった")
+                    uri, result = None, "見つけたものは、端末の Spotify で開けない形だった"
+        if uri is not None:
+            self._to_device("music", {"uri": uri})
+            self._req.spent_actions.add(action)
+            logger.info("event-loop 端末の Spotify へ%sを頼んだ", "曲" if uri else "開くこと")
+        self._triggers.put_nowait(
+            Trigger(
+                kind="完了",
+                query=query,
+                result=result,
+                intent_id=intent_id,
+                index=index,
+                failed=uri is None,
             )
         )
 

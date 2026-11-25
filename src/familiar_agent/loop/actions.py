@@ -98,15 +98,17 @@ _PRINT_ACTIONS = ("print_document",)
 _CONFIRM_ACTIONS = ("confirm", "decline")
 # 端末の求めでは、頼んだ端末の時計アプリで掛ける道具（端-c c6a・b2・`core/device_clock`）。家のタイマーとアラームには入れない。
 _DEVICE_CLOCK_ACTIONS = ("set_timer", "set_alarm")
+# 端末の求めでは、頼んだ端末の Spotify を開いて示す道具（端-c c6b 段 1）。探し方は家と同じで、家では鳴らさない。
+_DEVICE_MUSIC_ACTIONS = ("play_music",)
 # 端末の求めでは使わない道具（端-b 段 1-ろ-2・仮）。家の音（鳴らす・止める・音量）と印刷を扱うか、家で聞いた確認の答えを読む。
 # 端末の求めには出さず、呼ばれても断る。止める道具は端末からも使わない（2026-11-25 本人「止められなくていいです」）。
-# 音楽を端末の Spotify で鳴らす作り（c6b）ができるまで、音楽もここに置く。
+# 音楽を止める・飛ばす・音量・すすめた曲の返事は、端末の Spotify を機体から操れるようになる（c6b 段 2）までここに置く。
 _HOME_ONLY_ACTIONS = (
     *(a for a in _TIMER_ACTIONS if a not in _DEVICE_CLOCK_ACTIONS),
     *_STOPWATCH_ACTIONS,
     *(a for a in _ALARM_ACTIONS if a not in _DEVICE_CLOCK_ACTIONS),
     *_PRINT_ACTIONS,
-    *_MUSIC_ACTIONS,
+    *(a for a in _MUSIC_ACTIONS if a not in _DEVICE_MUSIC_ACTIONS),
     *_CONFIRM_ACTIONS,
 )
 # MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の

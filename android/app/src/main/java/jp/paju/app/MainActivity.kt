@@ -207,18 +207,24 @@ class MainActivity : Activity() {
         prefs.getString(KEY_DEVICE, null)?.takeIf { it.isNotBlank() } ?: Build.MODEL.take(Wire.NAME_MAX)
 
     private fun onMessage(msg: FromMachine) {
-        talk.on(msg)
+        val orders = talk.on(msg) // 求めが閉じたら、預かった頼みが返る
         when (msg) {
             is FromMachine.Hello -> { names = msg.names; showSpeakers(msg.speakers) }
             is FromMachine.Say -> { line("パジュ：${msg.display}"); listen.replied(SystemClock.elapsedRealtime()) }
             FromMachine.Closed -> listen.replied(SystemClock.elapsedRealtime())
             is FromMachine.Window -> if (msg.busy) listen.cut()
             FromMachine.Refused -> line("（いまは話せません）")
-            is FromMachine.Timer -> line(Clock.set(this, msg))
-            is FromMachine.Alarm -> line(Clock.set(this, msg))
             else -> Unit
         }
         render()
+        for (o in orders) {
+            when (o) {
+                is FromMachine.Timer -> line(Clock.set(this, o))
+                is FromMachine.Alarm -> line(Clock.set(this, o))
+                is FromMachine.Music -> line(Clock.open(this, o))
+                else -> Unit
+            }
+        }
     }
 
     private fun onDown() {

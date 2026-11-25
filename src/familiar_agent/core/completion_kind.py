@@ -46,6 +46,9 @@ _RESEARCH = frozenset(
 )
 _LOOK = frozenset({"look", "see"})
 
+#: 端末の求めの音楽を端末の Spotify で開いたときの返りに入る字（端-c c6b・`event_loop._device_music`）。
+#: 家では鳴った音で分かるので黙るが、端末では何を開いたか・再生は端末で押すことを軽く伝える。
+OPENED_ON_DEVICE = "頼んだ端末の Spotify"
 #: 掛ける道具（`set_timer`・`set_alarm`）が確認待ちを置いたときの返りの書き出し。
 NOT_SET_YET = "まだ掛けていない"
 #: 印刷の道具が確認待ちを置いたときの返りの書き出し（知-bo・`tools/print_tool` がここから読む）。
@@ -131,6 +134,8 @@ def kind_of(
         if self_started:
             return "自分から調べに行った結果が届いた", ("silent", "talk_light", "search_deferred")
         return "頼まれた調べものの答えが届いた", ("reply_full", "reply_light", "search_deferred")
+    if action == "play_music" and OPENED_ON_DEVICE in text:
+        return "端末の Spotify で開いた", ("tell_light",)
     if action == "music_suggestion_reply":
         # すすめた曲への返事（段 4-4f・本人の決定ア）。かけたら音で分かるので黙り、断られたら受け取ったと軽く伝える。
         if "もう勧めない" in text:

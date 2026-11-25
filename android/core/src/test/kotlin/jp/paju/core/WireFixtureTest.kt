@@ -25,6 +25,8 @@ class WireFixtureTest {
                 FromMachine.Window(busy = false),
                 FromMachine.Timer(seconds = 180, label = "パスタ"),
                 FromMachine.Alarm(hour = 7, minute = 30, label = "起こす"),
+                FromMachine.Music(uri = "spotify:playlist:0000000000000000000000"),
+                FromMachine.Music(uri = ""),
             ),
             fm,
         )
@@ -56,6 +58,18 @@ class WireFixtureTest {
         assertNull(Wire.decode("""{"type": "say", "text": 3}"""))
         assertNull(Wire.decode("[".repeat(100_000)))  // 深すぎる入れ子でも落ちずに捨てる
         assertNull(Wire.decode("""{"type": "cue", "kind": "\u+041"}"""))
+    }
+
+    @Test
+    fun opensOnlyASpotifyAddress() {
+        // Spotify の URI か空（Spotify を開くだけ）だけを受ける。ほかのアプリやページを開かせない
+        assertEquals(FromMachine.Music("spotify:track:abc"), Wire.decode("""{"type": "music", "uri": "spotify:track:abc"}"""))
+        assertNull(Wire.decode("""{"type": "music", "uri": "https://example.com/"}"""))
+        assertNull(Wire.decode("""{"type": "music", "uri": "intent:#Intent;end"}"""))
+        assertNull(Wire.decode("""{"type": "music", "uri": "spotify:track:a b"}"""))
+        assertNull(Wire.decode("""{"type": "music", "uri": "spotify:"}"""))
+        assertNull(Wire.decode("""{"type": "music", "uri": "spotify:track:\u0085"}"""))
+        assertNull(Wire.decode("""{"type": "music"}"""))
     }
 
     @Test

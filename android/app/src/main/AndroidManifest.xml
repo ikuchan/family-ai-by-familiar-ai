@@ -5,7 +5,8 @@
   <!-- 機体から届いたタイマーとアラームを、端末の時計アプリへ渡す（端-c c6a）。ふつうの許しで、本人に聞く画面は出ない -->
   <uses-permission android:name="com.android.alarm.permission.SET_ALARM"/>
   <!-- 音声認識の働き手を見つけるのに要る（Android 11 から、書かないと見えない） -->
-  <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>
+  <!-- Spotify のアプリを開くのにも要る（名前の無い「音楽かけて」・端-c c6b） -->
+  <queries><intent><action android:name="android.speech.RecognitionService"/></intent><package android:name="com.spotify.music"/></queries>
   <!-- 機体へは ws:// でつなぐ。家の外からは Tailscale の通り道（端-d）が暗号にする -->
   <application android:label="パジュ" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="true">
     <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize"

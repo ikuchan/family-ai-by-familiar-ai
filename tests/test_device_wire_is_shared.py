@@ -8,6 +8,7 @@
 - 名前の合図：アプリの聞き分け（見本の `heard`）が、機体の門の文頭の名前の決まりと同じ。
 - 会話が続くあいだ：アプリが名前なしの声を送るあいだ（見本の `window_sec`）が、機体の窓の長さと同じ（端-c c3）。
 - 端末の時計：タイマー（秒と名前）とアラーム（時と分と名前）の字が、アプリの読む字と同じ（端-c c6a）。
+- 端末の Spotify：開く URI（空なら Spotify を開くだけ）の字が、アプリの読む字と同じ（端-c c6b 段 1）。
 - 考え中の合図：アプリが `cue` の種類で鳴らす音と間隔（見本の `beeps`・`beep_interval_sec`）が、機体の電子音と同じ（端-c c4）。
 """
 
@@ -87,6 +88,11 @@ def test_what_the_machine_sends_is_the_shared_sample_letter_for_letter():
         kind, payload = clock_order("set_alarm", {"at": "7時半", "label": "起こす"}, now=_NOW)
         link.send(TAB, kind, payload)
         assert await _raw(tab) == fm[9]
+        # 端末の Spotify を開く（端-c c6b 段 1）。名前が無ければ URI は空
+        link.send(TAB, "music", {"uri": "spotify:playlist:0000000000000000000000"})
+        assert await _raw(tab) == fm[10]
+        link.send(TAB, "music", {"uri": ""})
+        assert await _raw(tab) == fm[11]
 
     _run(body)
 

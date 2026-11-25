@@ -3,7 +3,7 @@
 - 機体は家のタイマーとアラームに入れない（家で鳴らない・家の確認も黙りも置かない）。端末へ `timer`（秒と名前）か
   `alarm`（時と分と名前）を送り、端末が時計アプリへ渡す。
 - 機体は端末の時計に掛かったかを知らないので、返りは「端末の時計に頼んだ」と書く（掛けた、とは書かない）。
-- 止める・一時停止・ストップウォッチ・音楽・印刷・確認の答えは、端末の求めではいままでどおり使わない。
+- 止める・一時停止・ストップウォッチ・音楽を止める道具・印刷・確認の答えは、端末の求めではいままでどおり使わない。
 """
 
 from __future__ import annotations
@@ -134,7 +134,7 @@ def test_a_home_timer_is_still_set_at_home():
 
 
 @pytest.mark.parametrize(
-    "action", ["cancel_timer", "pause_timer", "cancel_alarm", "start_stopwatch", "play_music"]
+    "action", ["cancel_timer", "pause_timer", "cancel_alarm", "start_stopwatch", "stop_music"]
 )
 def test_other_sound_tools_are_still_refused_for_a_device(action):
     ip, got = _ip()
