@@ -244,7 +244,13 @@ def compose(
     basis_line = f"[この想起：{basis}]" if basis else ""
     # 想起した記憶には見出しを付ける。直近のやりとりの枠（文脈）と分ける（出-ay 段 4-4b：文脈は直前のやりとりで、
     # 思い出したことではない）。
-    remembered = _lines(shown, names, about=about_names(oif, shown), now=clock.now_utc())
+    remembered = _lines(
+        shown,
+        names,
+        about=about_names(oif, shown),
+        now=clock.now_utc(),
+        replaced=replaced_facts(oif, shown),
+    )
     if remembered.strip():
         remembered = "[思い出したこと]\n" + remembered
     text = "\n\n".join(p for p in [added, heard, basis_line, remembered] if p and p.strip())
@@ -734,12 +740,40 @@ def about_names(oif, memories: "list[Recalled]") -> "dict[str, str]":
     return {fid: names[pid] for fid, pid in about.items() if pid in names}
 
 
+def replaced_facts(oif, memories: "list[Recalled]") -> dict:
+    """思い出した記録の id → その記録の事実のうち置き換えられたもの（記-ah 段 3）。W を組むときに 1 回だけ読む。
+
+    読めなければ何も添えない（W は組む・警告を 1 行残す）。置き換えの無い記録は入らない。
+    """
+    ids = list(dict.fromkeys(r.mi.obs_id for r in memories if r.mi.obs_id))
+    if not ids or not hasattr(oif, "replacements_of"):
+        return {}
+    try:
+        return dict(oif.replacements_of(ids))
+    except Exception:  # noqa: BLE001
+        logger.warning("事実の置き換えを読めなかった（期間を添えずに W を組む）", exc_info=True)
+        return {}
+
+
+def _replaced_note(reps: list) -> str:
+    """置き換えられた事実の期間の注記。「（「話題」は いつ に置き換わった・新しい記録 id:…）」を事実ごとに。"""
+    notes = []
+    for rep in reps:
+        when = (
+            rep.valid_at.astimezone(clock.local_tz()).strftime("%Y-%m-%d") if rep.valid_at else "?"
+        )
+        sid = rep.new_obs.replace("-", "")[:12] or "?"
+        notes.append(f"（「{rep.old_sentence}」は {when} に置き換わった・新しい記録 id:{sid}）")
+    return "".join(notes)
+
+
 def _lines(
     memories: "list[Recalled]",
     names: "dict[str, str]",
     *,
     about: "dict[str, str] | None" = None,
     now: "datetime | None" = None,
+    replaced: "dict | None" = None,
 ) -> str:
     """W の1行を組む。**核の仕事**である（環-e-い）。
 
@@ -754,6 +788,8 @@ def _lines(
     以前は `ObservationMemory.format_for_context` が組んでいたが、`Recalled` を受ける形に
     すると**記憶が OIF の器を知る**ことになる（依存が逆向き）。W を組むのは核なので、
     ここへ移した。`agent` 側の呼び手は辞書のままなので、記憶の面は残してある。
+
+    `replaced` は記録の id → 置き換えられた事実（記-ah 段 3）。行の末尾に期間を添える（思い出すのは変えない）。
 
     `now` を渡すと、時刻のあとに、いまからの距離を添える（出-ds）。夜に朝の記憶の「おはよう」を並べると、
     日時だけでは、いつのことかを取り違えて「おはよう」と言い出した（11/15 19:40）。
@@ -777,9 +813,10 @@ def _lines(
         subject = subject_line(mi.direction, names.get(mi.obs_id))
         body = mi.content
         body = name_about(body, (about or {}).get(mi.id))
+        note = _replaced_note((replaced or {}).get(mi.obs_id, []))
         out.append(
             f"- {day} {at}{clock.since(mi.timestamp, now)} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
-            f" {subject}{emo}: {body}"
+            f" {subject}{emo}: {body}{note}"
         )
     return "\n".join(out)
 

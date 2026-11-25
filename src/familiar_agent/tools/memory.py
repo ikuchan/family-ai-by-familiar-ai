@@ -576,6 +576,10 @@ class ObservationMemory:
             self._ctx, since, per_key=per_key, min_cos=min_cos
         )
 
+    def replacements_of(self, obs_ids: "list[str]") -> dict:
+        """記録の id → 置き換えられた事実（記-ah 段 3・`RelationStore.replacements_of`）。"""
+        return RelationStore(self._ctx).replacements_of(list(obs_ids))
+
     def record_replacement(self, old_obs, old_key, new_obs, new_key, *, valid_at) -> "int | None":
         """置き換えの関係を書く（記-ah・`RelationStore.record_replacement`）。"""
         return RelationStore(self._ctx).record_replacement(

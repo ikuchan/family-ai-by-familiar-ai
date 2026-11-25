@@ -398,6 +398,10 @@ class OIF:
         logger.debug("OIF replace_candidates → %d 組", len(got))
         return got
 
+    def replacements_of(self, obs_ids: "list[str]") -> dict:
+        """記録の id → その記録の事実のうち置き換えられたもの（記-ah 段 3・W に期間を添える）。"""
+        return self._memory.replacements_of(obs_ids)
+
     def record_replacement(self, old_obs, old_key, new_obs, new_key, *, valid_at) -> "int | None":
         """新しい記録の事実が古い記録の事実を置き換えた、を書く（記-ah）。古い記録は隠さない。"""
         return self._memory.record_replacement(
