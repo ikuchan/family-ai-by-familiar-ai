@@ -12,6 +12,7 @@
 | 返りを待っている | `react_beep_awaiting.wav` | ミ | 平ら | 0.06 秒 | −6 dB |
 | 確かめている・効果音 B | `react_beep_checking.wav`・`react_ack.wav` | ド・ミ・ソ | 平ら | 0.12 秒 | −1 dB |
 | 書き留めている | `react_beep_noting.wav` | 1 つ下のド | 平ら | 0.12 秒 | −24 dB |
+| 話し中の音 | `react_busy.wav` | 1 つ下のラ | 平ら・2 回（間 0.10 秒） | 0.10 秒ずつ | −6 dB（仮・端-b 段 1-は） |
 | 黙る音 | `react_silent.wav` | 1 つ下のド・ミ・ソ → さらに低いラ・ド・ミ | だんだん消える | 0.15 秒 → 0.40 秒 | −6 dB（0.35 から） |
 
 - 「平ら」は、5 ms で立ち上がり、長さの 15 % ＋ 5 ms で絞って終わる。「だんだん消える」は、叩いた音のように鳴らした瞬間が
@@ -150,6 +151,13 @@ def build_silent() -> np.ndarray:
     return np.concatenate([high, low]).astype(np.float32)
 
 
+def build_busy() -> np.ndarray:
+    """話し中の音（プップッ）。1 つ下のラを 0.10 秒、0.10 秒あけてもう 1 回（端-b 段 1-は・仮）。"""
+    beep = _flat((pitch("ラ", -1),), 0.10, _amp(SINGLE_DB))
+    rest = np.zeros(int(RATE * 0.10))
+    return np.concatenate([beep, rest, beep]).astype(np.float32)
+
+
 def soft_onset(samples: np.ndarray, rate: int, sec: float = VOICE_ONSET_SEC) -> np.ndarray:
     """声の出だしを丸くする。声が 0.01 を超えた所から `sec` 秒かけて上げ、その前は消す。声が無ければそのまま。"""
     loud = np.flatnonzero(np.abs(samples) > 0.01)
@@ -281,6 +289,7 @@ def write_tones() -> None:
         rc.THINKING_WAV: build_thinking(),
         rc.ACK_WAV: build_ack(),
         rc.SILENT_WAV: build_silent(),
+        rc.BUSY_WAV: build_busy(),
     }
     made.update({rc.BEEP_WAVS[k]: build_beep(k) for k in BEEP_KINDS})
     for path, data in made.items():

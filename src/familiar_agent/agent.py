@@ -1337,6 +1337,9 @@ class EmbodiedAgent:
         if opened:
             self._device_link: "DeviceLink | None" = link
             self._info_processing.set_device_listener(link.send)
+            self._info_processing.set_window_listener(
+                link.window
+            )  # 窓の持ち主の知らせ（端-b 段 1-は）
 
     async def _close_device_link(self) -> None:
         link = getattr(self, "_device_link", None)

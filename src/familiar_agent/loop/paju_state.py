@@ -191,6 +191,7 @@ class PajuState(StateChart):
         confirm_ttl_sec: float = 300.0,
         heard_ttl_sec: float = 30.0,
         on_speech_ended: "Callable[[bool], None] | None" = None,
+        on_window_owner: "Callable[[str | None], None] | None" = None,
     ) -> None:
         #: 考えているの子に入ったときに呼ぶ口（子の名前を渡す）。ループが電子音を鳴らす（決定テ）。
         self._on_child = on_child
@@ -198,6 +199,9 @@ class PajuState(StateChart):
         self._on_idle = on_idle
         #: 声の話しているを出たときに呼ぶ口（鳴ったかを渡す）。ループが自分の声の見張りの 1.2 秒を数えさせる（第 5 段）。
         self._on_speech_ended = on_speech_ended
+        #: 窓を開けた・延ばした・切れたあとに、いまの窓の持ち主（閉じていれば None）を渡す口（端-b 段 1-は）。ループが
+        #: 端末へ知らせる。変わったかは受け手が見る（ここは印を持たない）。
+        self._on_window_owner = on_window_owner
         #: 考えているの合計の上限（秒・決定ミ）。無ければ数えない。
         self._limit_sec = thinking_limit_sec
         #: 上限に届いたときに呼ぶ口。ループが時間切れの答えを始める（項目 8）。数える仕事からだけ呼ぶ——電子音を
@@ -524,6 +528,7 @@ class PajuState(StateChart):
         self.wake.open(at, resume=resume, owner=owner)
         self._hold_while_speaking()
         await self._to_open()
+        self._tell_window_owner()
 
     async def extend_window(self, at: float, *, owner: str = "") -> None:
         """窓の中の入力、返事、つなぎ。`at` に窓が開いていて、持ち主が `owner` のときだけ延ばす（`WakeWindow.extend`）。
@@ -534,10 +539,21 @@ class PajuState(StateChart):
         self.wake.extend(at, owner=owner)
         self._hold_while_speaking()
         await self._to_open()
+        self._tell_window_owner()
 
     def window_owner_at(self, at: float) -> "str | None":
         """`at` に開いていた窓の持ち主（家は空・端末はその名前）。閉じていれば None（端-b 段 1-ろ）。"""
         return self.wake.owner_at(at)
+
+    def _tell_window_owner(self) -> None:
+        """いまの窓の持ち主を受け手へ渡す（端-b 段 1-は）。持ち主はデータから読むので、切れるあいだに開け直された窓も、
+        古い時刻で開けて切れていた窓も、いまのとおりに伝わる。受け手が落ちても、窓は止めない。"""
+        if self._on_window_owner is None:
+            return
+        try:
+            self._on_window_owner(self.wake.owner_at(time.monotonic()))
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 窓の持ち主を知らせられなかった", exc_info=True)
 
     # ── 声と窓（第 5 段）、求めと窓（端-b 段 1-い）───────────────────────────────────────
     # 窓が開いているあいだの声は、どれも（答え、録音の声）窓を保ち、話し終えてから 10 秒で閉じる（本人「話し終わって
@@ -837,6 +853,7 @@ class PajuState(StateChart):
                             self._tentative_sending = False
                 break
             if lapsed:
+                self._tell_window_owner()  # 切れた（送っているあいだに開け直されていれば、いまの持ち主）
                 # 送り終えてから見直す。順番は手放してから呼ぶ（錠は二重に取れない）。
                 if not self._timers_ended and self._tentative_live():
                     # 送っているあいだに新しい呼びかけが届いた。仮の呼びかけへ戻して数え直す。自分を止めないよう、先に手放す。
@@ -1157,6 +1174,7 @@ class PajuState(StateChart):
                             self._window_sending = False
                 break
             if lapsed:
+                self._tell_window_owner()  # 切れた（送っているあいだに開け直されていれば、いまの持ち主）
                 # 送り終えてから見直す。順番は手放してから呼ぶ（錠は二重に取れない）。
                 if not self._timers_ended and self.wake.is_open(time.monotonic()):
                     # 送っているあいだに開け直された（`_to_open` は、まだ開いていると見て送らなかった）。開いているへ

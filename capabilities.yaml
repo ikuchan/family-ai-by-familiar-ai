@@ -61,6 +61,9 @@ capabilities:
       heard the name, so its words are taken as called by name. While someone talks
       through a device, the window belongs to that device: words from the house and
       from other devices are refused, and a device whose words were refused is told so.
+      A family member who calls the agent at home while a device holds the window hears
+      a short made busy tone at home (not while the house is silenced). Each connected
+      device is told only whether it may talk now (when that changes), never who is talking.
       The reply goes only to that device as text (with the voice settings for the device
       to synthesise), never to the home speaker or screen, and the waiting cue is sent as
       its kind for the device to play. The speaker chosen on the device is who the agent

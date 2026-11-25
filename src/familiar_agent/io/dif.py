@@ -268,6 +268,31 @@ class DIF:
             return True
         return await _play_wav(path, 1.0, quiet=True)
 
+    def play_busy(self) -> None:
+        """話し中の音（`sounds/react_busy.wav`）を 1 回流す（待たない・端-b 段 1-は）。鳴っているあいだは重ねない。
+
+        LLM も声の合成も通さない。音楽は絞らない（短い音なので・電子音と同じ）。
+        """
+        from ..core.reaction_cue import BUSY_WAV
+
+        task = getattr(self, "_busy_task", None)
+        if task is not None and not task.done():
+            return
+
+        async def _one() -> None:
+            try:
+                if not await _play_wav(BUSY_WAV, 1.0, quiet=True):
+                    logger.warning("DIF 話し中の音を鳴らせなかった")
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.warning("DIF 話し中の音を鳴らせなかった", exc_info=True)
+
+        with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ鳴らさない
+            self._busy_task: "asyncio.Task[None] | None" = asyncio.get_running_loop().create_task(
+                _one()
+            )
+
     def play_cue(self, cue: str) -> "asyncio.Future[None] | None":
         """決まった動作の合図を 1 回流す（待たない）。なしなら何もしない。音楽が鳴っていれば絞る。
 

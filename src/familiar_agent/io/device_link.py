@@ -3,8 +3,11 @@
 端末（家族の Android のアプリ）は `/device?name=端末の名前` に WebSocket でつなぐ。待ち受けは入っている `aiohttp` の
 `web` で立てる（依存は増えない）。番地とポートは `DeviceLinkConfig`（既定は機体の中だけ・外から入れる道は端-d）。
 
-- つないだら、声の設定（`{"type": "hello", "voice": {"model": …, "voice": …}}`）を送る。返事の声は端末が合成に頼む（課題9
-  §4 の 3 の続き）。鍵は送らない。
+- つないだら、声の設定（`{"type": "hello", "voice": {"model": …, "voice": …}, "busy": …}`）を送る。返事の声は端末が合成に
+  頼む（課題9 §4 の 3 の続き）。鍵は送らない。
+- 窓の持ち主が変わったら（`window`・状態図から I を通って届く）、各端末へ `{"type": "window", "busy": …}` を送る（端-b 段
+  1-は）。`busy` は、窓が開いていて持ち主がその端末でないとき真で、端末は話す画面をグレーにする。その端末の値が変わった
+  ときだけ送り、誰と話しているかは送らない。
 - 端末から `{"type": "say", "text": …, "speaker": …}` が届いたら、入口（`push`）へ端末の言葉として流す。入口は最初の反復が
   終わるまで返らないので、読む輪では待たずにタスクで流す。
 - 返事は受け手（`send`・`InformationProcessing.set_device_listener` に登録する）が受け、その端末へ渡った順に送る。種類は
@@ -44,6 +47,7 @@ class _Link:
         self.ws = ws
         self.tasks: set[asyncio.Task] = set()  # 送りの鎖（閉じるときに止める）
         self._last: "asyncio.Task | None" = None
+        self.busy = False  # 最後に知らせた「話せない」（変わったときだけ送る）
 
     def send(self, data: dict) -> None:
         task = asyncio.get_running_loop().create_task(self._send_after(self._last, data))
@@ -85,6 +89,8 @@ class DeviceLink:
         self._pushes: set[asyncio.Task] = set()
         self._runner: "web.AppRunner | None" = None
         self.port = 0  # 実際に待ち受けているポート（ポート 0 を渡したとき用）
+        #: 最後に知らせた窓の持ち主（家は空・閉じていれば None）。同じ値は送り直さず、つないだ端末には hello に添える。
+        self._owner: "str | None" = None
 
     async def start(self) -> bool:
         """待ち受ける。番地を取れなければ WARNING を残して偽を返す（起動は止めない）。"""
@@ -141,6 +147,20 @@ class DeviceLink:
             return
         link.send({"type": kind, **payload})
 
+    def window(self, owner: "str | None") -> None:
+        """受け手（同期）：窓の持ち主が `owner` になった（閉じていれば None）。変わったときだけ、各端末へ話せるかを送る。"""
+        if owner == self._owner:
+            return
+        self._owner = owner
+        for name, link in list(self._links.items()):
+            busy = self._busy_for(name)
+            if busy != link.busy:
+                link.busy = busy
+                link.send({"type": "window", "busy": busy})
+
+    def _busy_for(self, device: str) -> bool:
+        return self._owner is not None and self._owner != device
+
     async def _handle(self, request: web.Request) -> web.StreamResponse:
         if self._closing:
             return web.Response(status=503, text="closing")
@@ -165,7 +185,8 @@ class DeviceLink:
             with contextlib.suppress(Exception):
                 await old.ws.close()
         logger.info("device-link 端末（%s）がつながった", tag(name))
-        link.send({"type": "hello", "voice": dict(self._voice)})
+        link.busy = self._busy_for(name)
+        link.send({"type": "hello", "voice": dict(self._voice), "busy": link.busy})
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:

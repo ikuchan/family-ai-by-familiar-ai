@@ -1246,6 +1246,7 @@ class InformationProcessing:
                 confirm_ttl_sec=self._agent.config.confirm_ttl_sec,
                 heard_ttl_sec=HEARD_CHECK_TTL_SEC,
                 on_speech_ended=lambda played: get_shared_voice_guard().after_speech(played=played),
+                on_window_owner=self._tell_window_owner,
             )
             # 自分の声の見張り（マイクの門）は、声が出ているかをこの状態図の話しているから読む（環-aw 第 5 段）。
             get_shared_voice_guard().attach(lambda: sm.voice_state() == "speaking")
@@ -3160,6 +3161,24 @@ class InformationProcessing:
         """
         self._on_device = listener
 
+    def set_window_listener(self, listener) -> None:
+        """窓の持ち主の知らせの送り先を登録する（端-b 段 1-は）。受け手は `listener(持ち主)` を受ける（家は空・端末はその
+        名前・閉じていれば None）。窓を開けた・延ばした・切れたたびに呼ぶので、変わったかは受け手が見る。
+
+        登録したときに、いまの持ち主を 1 度渡す（口を開ける前から開いていた窓も、つないだ端末へ正しく伝える）。
+        """
+        self._on_window = listener
+        self._tell_window_owner(self._paju().window_owner_at(time.monotonic()))
+
+    def _tell_window_owner(self, owner: "str | None") -> None:
+        listener = getattr(self, "_on_window", None)  # 殻だけの器（テスト）でも落ちない
+        if listener is None:
+            return
+        try:
+            listener(owner)
+        except Exception:  # noqa: BLE001
+            logger.exception("event-loop 窓の持ち主を端末へ知らせられなかった")
+
     def _tell_device_closed(self, device: "str | None" = None) -> None:
         """端末の求めが閉じたら、その端末へ知らせる（返事の無いまま閉じても、端末が待ち続けない）。閉じる所だけが呼ぶ。
 
@@ -4827,6 +4846,13 @@ class InformationProcessing:
                 # **知らない声は無条件に捨てる**（知-ar）。名前・黙っていての依頼・窓より前。気配として SAFETY だけ上げる。
                 await self._nudge_by_voice(trigger, stranger=True)
                 return self._swallowed(trigger)
+        if trigger.kind == "会話入力":
+            # 口と窓の持ち主は、耳の入口と知らない声のあと、考えているあいだの門と、名前と窓を読むどの門よりも先に見る。
+            # 端末の求めを考えているあいだ（耳は聞かない）も、家の名前の声に話し中の音を返すため（端-b 段 1-は）。
+            mouth = await self._mouth_gate(trigger, names)
+            if mouth is not None:
+                return mouth
+        if trigger.kind == "会話入力" and trigger.source == "voice":
             if self._deaf_to(trigger):
                 # 考えているあいだの声は、名前があっても捨てる（環-aw 決定ト、モ）。打ち切りより前なので、調べかけも止めない。
                 # 知らない声の気配（SAFETY）は残すので、その後に置く。
@@ -4837,10 +4863,6 @@ class InformationProcessing:
                 )
                 return self._swallowed(trigger)
         if trigger.kind == "会話入力":
-            # 口と窓の持ち主は、声だけの入口（耳・知らない声・考えているあいだ）のあと、名前と窓を読むどの門よりも先に見る。
-            mouth = await self._mouth_gate(trigger)
-            if mouth is not None:
-                return mouth
             if trigger.source == "voice" and is_name_repeat(trigger.query, names):
                 # 名前だけの繰り返しは想定外（2026-10-07 本人の決定）。窓が開いていても、値に関わらず捨てる。
                 logger.info(
@@ -5001,7 +5023,7 @@ class InformationProcessing:
             self._pending_heard = self._take_muted()
         return False
 
-    async def _mouth_gate(self, trigger: "Trigger") -> "bool | None":
+    async def _mouth_gate(self, trigger: "Trigger", names: "list[str]") -> "bool | None":
         """口と窓の持ち主の門（端-b 段 1-ろ・課題9 §7.4）。捨てた（真）・通した（偽）・この先の門に任せる（None）を返す。
 
         排他の仕組みは窓だけである。窓が開いていて持ち主が別の口なら、その口の言葉は名前があっても断る（窓は開け直さず、
@@ -5014,13 +5036,15 @@ class InformationProcessing:
         at = self._arrival(trigger)
         owner = self._paju().window_owner_at(at)
         if owner is not None and owner != trigger.device:
-            logger.info(
-                "event-loop 窓が%sのものなので、%sの言葉を断る（%d 字）",
-                "端末" if owner else "家",
-                "端末" if trigger.device else "家",
-                len(trigger.query or ""),
+            # 話し中の音は、窓が空いていれば窓を開けた家の言葉（名前で起こせる声・キーボード）にだけ鳴らす（仮）。名前だけの
+            # 繰り返しは窓を開けないので鳴らさない。
+            from ..core.wake_strictness import is_name_repeat
+
+            addressed = trigger.source != "voice" or (
+                not is_name_repeat(trigger.query, names)
+                and self._wake_admits(trigger, names, log=False)
             )
-            return self._swallowed(trigger)
+            return self._refuse_other_mouth(trigger, owner, addressed=addressed)
         if not trigger.device:
             return None
         trigger.named = True
@@ -5040,13 +5064,47 @@ class InformationProcessing:
         owner = self._paju().window_owner_at(time.monotonic())
         if owner is None or owner == trigger.device:
             return False
+        # 門を通った言葉なので、家の言葉ならパジュに話しかけた言葉として話し中の音を返す（仮）。
+        return self._refuse_other_mouth(trigger, owner, addressed=True, waited=True)
+
+    def _refuse_other_mouth(
+        self, trigger: "Trigger", owner: str, *, addressed: bool, waited: bool = False
+    ) -> bool:
+        """窓が別の口（`owner`）のものなので、その言葉を断る（真を返す・端-b 段 1-ろ・1-は）。門と取り出しの 2 か所が呼ぶ。
+
+        端末の言葉なら、その端末へ「断った」を返す（`_swallowed`）。家でパジュに話しかけた言葉（`addressed`）なら、家で
+        話し中の音を鳴らす（課題9 §7.4「家での断り方」）。家が黙っているあいだと、家の声が話しているあいだ（端末の窓の
+        あいだの家の情動の声・自分の声の聞こえ返しに鳴らさず、声に重ねない）は鳴らさない（仮）。鳴り終わりは待たない。
+        """
         logger.info(
-            "event-loop 待たせた%sの言葉は、窓がいま%sのものなので断る",
+            "event-loop %s%sの言葉は、窓が%sのものなので断る（%s、%s）",
+            "待たせた" if waited else "",
             "端末" if trigger.device else "家",
             "端末" if owner else "家",
+            chars(trigger.query),
+            self._paju().describe(),
         )
-        self._swallowed(trigger)
-        return True
+        if (
+            not trigger.device
+            and addressed
+            and self._paju().voice_state() != "speaking"
+            and not self._home_silenced()
+        ):
+            logger.info("event-loop 家で話し中の音を鳴らす")
+            try:
+                self._dif.play_busy()
+            except Exception:  # noqa: BLE001
+                logger.warning("event-loop 話し中の音を鳴らせなかった", exc_info=True)
+        return self._swallowed(trigger)
+
+    def _home_silenced(self) -> bool:
+        """家が黙っているよう頼まれているか（読めなければ黙っていない扱い・門と同じ）。"""
+        from ..silence_state import is_silenced
+
+        try:
+            return is_silenced(self._paju().silence_request(), now=time.time())
+        except Exception:  # noqa: BLE001
+            return False
 
     def _same_mouth(self, trigger: "Trigger") -> bool:
         """その言葉が、いまの求めと同じ口から届いたか（端-b 段 1-ろ）。口の違う言葉は、言い足しにも確認の答えにもしない。"""
@@ -5469,7 +5527,7 @@ class InformationProcessing:
         return trigger.arrived or time.monotonic()
 
     def _wake_admits(
-        self, trigger: "Trigger", names: "list[str]", *, near_ok: bool = False
+        self, trigger: "Trigger", names: "list[str]", *, near_ok: bool = False, log: bool = True
     ) -> bool:
         """窓が閉じているときの声で、名前で窓を開けてよいか（2026-10-05 実機の聞き違い「パジュー」・本人の決定）。
 
@@ -5499,6 +5557,8 @@ class InformationProcessing:
             cfg=cfg,
             near_ok=near_ok,
         )
+        if not log:
+            return ok  # 窓を開けない問い（話し中の音を鳴らすか・端-b 段 1-は）。名前で起こす値のログに混ぜない
         # 通したときも値を残す（出-ch）。捨てた値だけでは、上限を上げて物音で起きたかを見直せない。本文は出さない。
         logger.info(
             "event-loop %s：%s（無音らしさ=%s・確かさ=%s・%d 字・%s・声%s）%s",

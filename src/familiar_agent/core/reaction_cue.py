@@ -42,6 +42,8 @@ BEEP_WAVS: "dict[str, Path]" = {
 ACK_WAV = _SOUNDS / "react_ack.wav"
 #: 合図の後で黙ると決まったときの黙る音（出-dc）。
 SILENT_WAV = _SOUNDS / "react_silent.wav"
+#: 話し中の音（プップッ・端-b 段 1-は・課題9 §7.4）。窓が端末のものなのに家で話しかけられたとき、家で鳴らす。
+BUSY_WAV = _SOUNDS / "react_busy.wav"
 #: 作り置きの声（パジュの声・SBV2）。いまは 1 つずつ（出-de）。増やせば、鳴らす側が毎回その中から選ぶ（`sound_for`）。
 TOOL_WORDS = ("はいっ",)
 # 最初の反応は道具の声 1 つと「えっと」だけにした（出-de・2026-10-31・本人）。前は道具の声が はい・はーい！・待ってね・
@@ -104,4 +106,4 @@ def sound_for(cue: str) -> "Path | None":
 def sound_files() -> "list[Path]":
     """合図の音のファイル全部（作る道具と試験が見る）。"""
     beeps = [p for p in BEEP_WAVS.values() if p != THINKING_WAV]
-    return [THINKING_WAV, ACK_WAV, SILENT_WAV, *beeps, *TOOL_WAVS, *THINK_WAVS]
+    return [THINKING_WAV, ACK_WAV, SILENT_WAV, BUSY_WAV, *beeps, *TOOL_WAVS, *THINK_WAVS]
