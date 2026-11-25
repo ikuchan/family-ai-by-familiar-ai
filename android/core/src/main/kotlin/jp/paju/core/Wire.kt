@@ -25,6 +25,12 @@ sealed interface FromMachine {
 
     /** この端末が話せないかが変わった。 */
     data class Window(val busy: Boolean) : FromMachine
+
+    /** 端末の時計アプリでタイマーを掛ける（端-c c6a・b2）。`seconds` は 1〜86400。 */
+    data class Timer(val seconds: Int, val label: String) : FromMachine
+
+    /** 端末の時計アプリでアラームを掛ける（端-c c6a・b2）。時と分は端末の時刻（過ぎていれば翌日に鳴るのは時計アプリ）。 */
+    data class Alarm(val hour: Int, val minute: Int, val label: String) : FromMachine
 }
 
 /** 端末の口の字の読み書き。上限は機体の `io/device_link.py` と同じ。 */
@@ -58,6 +64,15 @@ object Wire {
             "closed" -> FromMachine.Closed
             "refused" -> FromMachine.Refused
             "window" -> FromMachine.Window(m["busy"] as? Boolean ?: return null)
+            "timer" -> FromMachine.Timer(
+                seconds = whole(m["seconds"], 1..86_400) ?: return null,
+                label = m["label"] as? String ?: return null,
+            )
+            "alarm" -> FromMachine.Alarm(
+                hour = whole(m["hour"], 0..23) ?: return null,
+                minute = whole(m["minute"], 0..59) ?: return null,
+                label = m["label"] as? String ?: return null,
+            )
             else -> null
         }
     }
@@ -68,6 +83,12 @@ object Wire {
         val p = speaker.trim(::isPySpace)
         if (t.isEmpty() || letters(t) > TEXT_MAX || letters(p) > NAME_MAX) return null
         return """{"type":"say","text":${Json.quote(t)},"speaker":${Json.quote(p)}}"""
+    }
+
+    /** 範囲の中の整数（Json の数は Double で届く）。時計アプリが受ける範囲（Android の AlarmClock）の外は null。 */
+    private fun whole(v: Any?, range: IntRange): Int? {
+        val d = v as? Double ?: return null
+        return d.toInt().takeIf { it.toDouble() == d && it in range }
     }
 
     private fun strings(v: Any?): List<String>? =

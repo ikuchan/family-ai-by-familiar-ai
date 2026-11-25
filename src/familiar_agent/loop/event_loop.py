@@ -83,6 +83,7 @@ from .actions import (
     _looks_like_text_tool_call,
     _LOOKUP_ACTIONS,
     _MCP_LOOKUPS,
+    _DEVICE_CLOCK_ACTIONS,
     _HOME_ONLY_ACTIONS,
     _MUSIC_ACTIONS,
     _music_def,
@@ -1835,6 +1836,10 @@ class InformationProcessing:
 
         `people` は思い出す道具が記憶を引く人で、投げた時点の求めで決めてある（`_recall_people`・端-b 段 1-ろ-3）。
         """
+        if action in _DEVICE_CLOCK_ACTIONS and self._req_device():
+            # 端末の求めのタイマーとアラームは端末の時計アプリへ（端-c c6a）。家の確認待ちは見ない（端末の確認は聞かない）
+            self._device_clock(action, tool_input, query, intent_id, index)
+            return
         # **確認待ちのあいだ、掛け直しは機械が落とす**（出-ag-ろ・2026-09-21）。
         # 言葉で頼んでも守られなかった——1 回の「3 分測って」で `set_timer` が 3 回投げられ、
         # 確認待ちを作り直したうえで「セットしました」と言った（実機 17:34・掛かっていない）。
@@ -5116,6 +5121,50 @@ class InformationProcessing:
     def _same_mouth(self, trigger: "Trigger") -> bool:
         """その言葉が、いまの求めと同じ口から届いたか（端-b 段 1-ろ）。口の違う言葉は、言い足しにも確認の答えにもしない。"""
         return trigger.device == self._req_device()
+
+    def _device_clock(
+        self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int
+    ) -> None:
+        """端末の求めのタイマーとアラームを、頼んだ端末の時計アプリへ送る（端-c c6a・b2）。
+
+        家のタイマーとアラームには入れない（家で鳴らさず、家の確認も黙りも置かない）。機体は端末の時計に掛かったかを
+        知らないので、返りは「頼んだ」と書く（掛からなければ端末の画面に出る）。
+        """
+        from ..core.device_clock import clock_order
+
+        now = (self._req.began_at or datetime.now()).astimezone()
+        order = clock_order(action, tool_input, now=now)
+        if action in self._req.spent_actions:
+            # 1 つの求めで 1 回まで。家のタイマーは「同時に 1 本」で掛け直しを止めるが、端末の時計は機体から見えない
+            result, failed = "この頼みでは、もう端末の時計アプリに頼んである。掛け直さない", True
+        elif isinstance(order, str):
+            result, failed = order, True
+        else:
+            kind, payload = order
+            self._to_device(kind, payload)
+            self._req.spent_actions.add(action)
+            logger.info("event-loop 端末の時計アプリへ%sを頼んだ", kind)
+            sec = payload["seconds"] if kind == "timer" else 0
+            length = f"{sec // 60} 分" + (f" {sec % 60} 秒" if sec % 60 else "")
+            what = (
+                f"{length}の「{payload['label']}」のタイマー"
+                if kind == "timer"
+                else f"{payload['hour']}:{payload['minute']:02d} の「{payload['label']}」のアラーム"
+            )
+            result, failed = (
+                f"頼んだ端末の時計アプリに、{what}を頼んだ（家では鳴らない・止めるのは端末の時計で）",
+                False,
+            )
+        self._triggers.put_nowait(
+            Trigger(
+                kind="完了",
+                query=query,
+                result=result,
+                intent_id=intent_id,
+                index=index,
+                failed=failed,
+            )
+        )
 
     def _home_only(self, action: str) -> bool:
         """端末の求めで使わない道具か（家で音が出る・家で聞いた確認の答え・`_HOME_ONLY_ACTIONS`・端-b 段 1-ろ-2・仮）。"""

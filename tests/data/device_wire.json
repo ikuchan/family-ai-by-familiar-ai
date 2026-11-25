@@ -8,7 +8,9 @@
   "{\"type\": \"closed\"}",
   "{\"type\": \"refused\"}",
   "{\"type\": \"window\", \"busy\": true}",
-  "{\"type\": \"window\", \"busy\": false}"
+  "{\"type\": \"window\", \"busy\": false}",
+  "{\"type\": \"timer\", \"seconds\": 180, \"label\": \"\\u30d1\\u30b9\\u30bf\"}",
+  "{\"type\": \"alarm\", \"hour\": 7, \"minute\": 30, \"label\": \"\\u8d77\\u3053\\u3059\"}"
  ],
  "to_machine": [
   {

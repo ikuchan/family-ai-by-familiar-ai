@@ -7,6 +7,7 @@
 - 端末 → 機体：アプリが作る字（見本）を、端末の口が言葉と話者として受ける。
 - 名前の合図：アプリの聞き分け（見本の `heard`）が、機体の門の文頭の名前の決まりと同じ。
 - 会話が続くあいだ：アプリが名前なしの声を送るあいだ（見本の `window_sec`）が、機体の窓の長さと同じ（端-c c3）。
+- 端末の時計：タイマー（秒と名前）とアラーム（時と分と名前）の字が、アプリの読む字と同じ（端-c c6a）。
 - 考え中の合図：アプリが `cue` の種類で鳴らす音と間隔（見本の `beeps`・`beep_interval_sec`）が、機体の電子音と同じ（端-c c4）。
 """
 
@@ -14,16 +15,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aiohttp
 
+from familiar_agent.core.device_clock import clock_order
 from familiar_agent.core.silence_rules import names_me
 from familiar_agent.core.wake_strictness import is_name_only, is_name_repeat
 from familiar_agent.io.device_link import DeviceLink
 
 WIRE = json.loads((Path(__file__).parent / "data" / "device_wire.json").read_text("utf-8"))
 TAB = "tablet-1"
+_NOW = datetime(2026, 11, 26, 6, 0, tzinfo=timezone(timedelta(hours=9)))
 
 
 def _run(body, push=None):
@@ -76,6 +80,13 @@ def test_what_the_machine_sends_is_the_shared_sample_letter_for_letter():
         assert await _raw(tab) == fm[5]
         link.window(None)
         assert await _raw(tab) == fm[7]
+        # 端末の時計アプリへの頼み（端-c c6a）。中身は `core/device_clock.clock_order` が作る
+        kind, payload = clock_order("set_timer", {"after_minutes": 3, "label": "パスタ"}, now=_NOW)
+        link.send(TAB, kind, payload)
+        assert await _raw(tab) == fm[8]
+        kind, payload = clock_order("set_alarm", {"at": "7時半", "label": "起こす"}, now=_NOW)
+        link.send(TAB, kind, payload)
+        assert await _raw(tab) == fm[9]
 
     _run(body)
 

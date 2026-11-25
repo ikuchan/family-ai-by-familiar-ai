@@ -214,6 +214,8 @@ class MainActivity : Activity() {
             FromMachine.Closed -> listen.replied(SystemClock.elapsedRealtime())
             is FromMachine.Window -> if (msg.busy) listen.cut()
             FromMachine.Refused -> line("（いまは話せません）")
+            is FromMachine.Timer -> line(Clock.set(this, msg))
+            is FromMachine.Alarm -> line(Clock.set(this, msg))
             else -> Unit
         }
         render()

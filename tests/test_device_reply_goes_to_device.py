@@ -2,7 +2,8 @@
 
 - 返事の字は端末の受け手（`set_device_listener`）へ送り、家のスピーカーでも画面でも出さない。
 - 考え中の合図は家で鳴らさず、「いま何の合図か」だけを端末へ送る（b1）。
-- 家で音が出る道具（タイマー・アラーム・ストップウォッチ・音楽・印刷）と確認の答えは、端末の求めでは使わない（b2 は後の段・仮）。
+- 家で音が出る道具（タイマーとアラームの止め方・ストップウォッチ・音楽・印刷）と確認の答えは、端末の求めでは使わない（仮）。
+  タイマーとアラームを掛けるのは、端末の時計アプリへ頼む（端-c c6a・`tests/test_device_clock.py`）。
 - 求めが閉じたら端末へ知らせる（返事の無いまま閉じても、端末が待ち続けない）。
 """
 
@@ -77,18 +78,18 @@ def test_home_sound_tools_are_not_offered_to_a_device_request():
 def test_home_sound_tool_defs_are_not_given_to_the_main_llm_for_a_device():
     ip, _, _ = _ip()
     ip._ACTIONS = {
-        "set_timer": lambda _ip: [{"name": "set_timer"}],
+        "cancel_timer": lambda _ip: [{"name": "cancel_timer"}],
         "say": lambda _ip: [{"name": "say"}],
     }
     ip._gated = lambda defs: defs
-    names = {d["name"] for d in ip._tools(actions=("say", "set_timer"), cache_tools=False)}
+    names = {d["name"] for d in ip._tools(actions=("say", "cancel_timer"), cache_tools=False)}
     assert names == {"say"}
 
 
 def test_a_home_sound_tool_called_for_a_device_is_refused():
     ip, _, _ = _ip()
     ip._agent._timer_tool.call = AsyncMock(return_value=("掛けた", True))
-    asyncio.run(ip._run_lookup_body("set_timer", {"minutes": 3}, "3 分", None))
+    asyncio.run(ip._run_lookup_body("cancel_timer", {"id": "all"}, "止めて", None))
     ip._agent._timer_tool.call.assert_not_called()
     done = ip._triggers.get_nowait()
     assert done.kind == "完了" and done.failed

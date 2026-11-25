@@ -2,6 +2,8 @@
   <uses-permission android:name="android.permission.INTERNET"/>
   <!-- 名前を呼ぶ合図と書き起こしを端末の中で聞く（端-c c3）。音は機体へ送らない -->
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+  <!-- 機体から届いたタイマーとアラームを、端末の時計アプリへ渡す（端-c c6a）。ふつうの許しで、本人に聞く画面は出ない -->
+  <uses-permission android:name="com.android.alarm.permission.SET_ALARM"/>
   <!-- 音声認識の働き手を見つけるのに要る（Android 11 から、書かないと見えない） -->
   <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>
   <!-- 機体へは ws:// でつなぐ。家の外からは Tailscale の通り道（端-d）が暗号にする -->

@@ -49,6 +49,7 @@ class Talk(var speaker: String = "") {
             FromMachine.Closed, FromMachine.Refused -> { waiting = false; beep = null }
             is FromMachine.Say -> beep = null
             is FromMachine.Cue -> if (waiting) beep = Beeps.FILES[msg.kind] // 待ちを解いたあとの遅れた合図では鳴らさない
+            is FromMachine.Timer, is FromMachine.Alarm -> Unit // 時計アプリへ渡すだけで、話す画面は変えない
         }
     }
 

@@ -23,6 +23,8 @@ class WireFixtureTest {
                 FromMachine.Refused,
                 FromMachine.Window(busy = true),
                 FromMachine.Window(busy = false),
+                FromMachine.Timer(seconds = 180, label = "パスタ"),
+                FromMachine.Alarm(hour = 7, minute = 30, label = "起こす"),
             ),
             fm,
         )
@@ -54,5 +56,20 @@ class WireFixtureTest {
         assertNull(Wire.decode("""{"type": "say", "text": 3}"""))
         assertNull(Wire.decode("[".repeat(100_000)))  // 深すぎる入れ子でも落ちずに捨てる
         assertNull(Wire.decode("""{"type": "cue", "kind": "\u+041"}"""))
+    }
+
+    @Test
+    fun dropsWhatTheClockCannotTake() {
+        // 時計アプリが受ける範囲（Android の AlarmClock）の外と、整数でない数は捨てる
+        assertEquals(FromMachine.Timer(86_400, "x"), Wire.decode("""{"type": "timer", "seconds": 86400, "label": "x"}"""))
+        assertNull(Wire.decode("""{"type": "timer", "seconds": 0, "label": "x"}"""))
+        assertNull(Wire.decode("""{"type": "timer", "seconds": 86401, "label": "x"}"""))
+        assertNull(Wire.decode("""{"type": "timer", "seconds": 1.5, "label": "x"}"""))
+        assertNull(Wire.decode("""{"type": "timer", "seconds": 60}"""))
+        assertEquals(FromMachine.Alarm(23, 59, "x"), Wire.decode("""{"type": "alarm", "hour": 23, "minute": 59, "label": "x"}"""))
+        assertNull(Wire.decode("""{"type": "alarm", "hour": 24, "minute": 0, "label": "x"}"""))
+        assertNull(Wire.decode("""{"type": "alarm", "hour": 7, "minute": 60, "label": "x"}"""))
+        assertNull(Wire.decode("""{"type": "alarm", "hour": -1, "minute": 0, "label": "x"}"""))
+        assertNull(Wire.decode("""{"type": "alarm", "hour": 7, "label": "x"}"""))
     }
 }

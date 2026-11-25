@@ -70,12 +70,16 @@ capabilities:
       to synthesise), never to the home speaker or screen, and the waiting cue is sent as
       its kind for the device to play. The speaker chosen on the device is who the agent
       is talking with for that request (their memories, name and manner), but they are
-      not counted as being near the agent at home. Tools that make sound at home (timer,
-      alarm, stopwatch, music, printing) and the person's own tools (vault, journal) are
-      not offered to a device request. A home "be quiet" does not stop device replies and
+      not counted as being near the agent at home. A timer or an alarm asked from a device
+      (`set_timer`, `set_alarm`) is handed to that device's clock app, with no question
+      before setting it: it rings and is stopped on the device, never at home, and is not
+      shown as [タイマー] or [アラーム], so the agent does not know whether it was set or
+      how long is left. Other tools that make sound at home (stopping, pausing or cancelling
+      a timer or an alarm, stopwatch, music, printing) and the person's own tools (vault,
+      journal) are not offered to a device request. A home "be quiet" does not stop device replies and
       is not lifted from a device. For now the agent listens only on this machine
       (127.0.0.1:8765); the private route for family devices from outside comes later.
-      Implemented in `io/device_link.py` and `loop/event_loop.py`.
+      Implemented in `io/device_link.py`, `core/device_clock.py` and `loop/event_loop.py`.
     enabled: true
   - id: camera_vision
     summary: Capture and interpret images from a camera (RTSP or USB webcam)
@@ -248,7 +252,8 @@ capabilities:
       and it answers from [タイマー]. When it would ring in the quiet hours or while asked to be quiet, the
       agent first asks once whether to set it; the answer is taken by `confirm` or
       `decline`. When due it rings once and says what it was for, even in the quiet hours.
-      A time of day ("7 時に") is an alarm, not a timer. Implemented in `tools/timer.py`,
+      A time of day ("7 時に") is an alarm, not a timer. Asked from a device, it is set on
+      that device's clock app instead (see device_link). Implemented in `tools/timer.py`,
       `loop/timer_watch.py` and `core/confirm_state.py`.
     enabled_tool: set_timer
   - id: alarm
@@ -258,7 +263,8 @@ capabilities:
       tomorrow. Up to 5 alarms can be set at once, shown as [アラーム] on every turn, and
       `cancel_alarm` cancels one or all. It asks once before setting only when it would
       ring in the quiet hours (23-7); the answer is taken by `confirm` or `decline`.
-      Something to be rung after some minutes is a timer, not an alarm. Implemented in
+      Something to be rung after some minutes is a timer, not an alarm. Asked from a
+      device, it is set on that device's clock app instead (see device_link). Implemented in
       `tools/alarm.py` and `loop/alarm_watch.py`.
     enabled_tool: set_alarm
   - id: printing

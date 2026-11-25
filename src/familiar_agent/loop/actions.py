@@ -96,12 +96,15 @@ _PRINT_ACTIONS = ("print_document",)
 # 確認待ちへの答え（出-y・2026-09-18）。預かりが生きているあいだだけ候補と道具に載る（`agent.confirm_alive`）。
 # 機械が預かった入力で掛ける／捨てる。返りは道具の帰りと同じ道（想起なし・`workspace.RETURN_WITHOUT_RECALL`）。
 _CONFIRM_ACTIONS = ("confirm", "decline")
+# 端末の求めでは、頼んだ端末の時計アプリで掛ける道具（端-c c6a・b2・`core/device_clock`）。家のタイマーとアラームには入れない。
+_DEVICE_CLOCK_ACTIONS = ("set_timer", "set_alarm")
 # 端末の求めでは使わない道具（端-b 段 1-ろ-2・仮）。家の音（鳴らす・止める・音量）と印刷を扱うか、家で聞いた確認の答えを読む。
-# 端末で鳴らす作り（b2）ができるまでは、端末の求めには出さず、呼ばれても断る。止める道具も通すかは本人の確認待ち。
+# 端末の求めには出さず、呼ばれても断る。止める道具は端末からも使わない（2026-11-25 本人「止められなくていいです」）。
+# 音楽を端末の Spotify で鳴らす作り（c6b）ができるまで、音楽もここに置く。
 _HOME_ONLY_ACTIONS = (
-    *_TIMER_ACTIONS,
+    *(a for a in _TIMER_ACTIONS if a not in _DEVICE_CLOCK_ACTIONS),
     *_STOPWATCH_ACTIONS,
-    *_ALARM_ACTIONS,
+    *(a for a in _ALARM_ACTIONS if a not in _DEVICE_CLOCK_ACTIONS),
     *_PRINT_ACTIONS,
     *_MUSIC_ACTIONS,
     *_CONFIRM_ACTIONS,
