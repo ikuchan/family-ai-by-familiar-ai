@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from dataclasses import replace as _replace
 from datetime import datetime
 
-from ..core import final_version, measure
+from ..core import fact_replace, final_version, measure
 from ..core.completion_kind import is_spent
 from ..io.oif import Cue, Recalled, View
 from ..person_memory_manager import AGENT_SELF_ID
@@ -755,18 +755,6 @@ def replaced_facts(oif, memories: "list[Recalled]") -> dict:
         return {}
 
 
-def _replaced_note(reps: list) -> str:
-    """置き換えられた事実の期間の注記。「（「話題」は いつ に置き換わった・新しい記録 id:…）」を事実ごとに。"""
-    notes = []
-    for rep in reps:
-        when = (
-            rep.valid_at.astimezone(clock.local_tz()).strftime("%Y-%m-%d") if rep.valid_at else "?"
-        )
-        sid = rep.new_obs.replace("-", "")[:12] or "?"
-        notes.append(f"（「{rep.old_sentence}」は {when} に置き換わった・新しい記録 id:{sid}）")
-    return "".join(notes)
-
-
 def _lines(
     memories: "list[Recalled]",
     names: "dict[str, str]",
@@ -813,7 +801,7 @@ def _lines(
         subject = subject_line(mi.direction, names.get(mi.obs_id))
         body = mi.content
         body = name_about(body, (about or {}).get(mi.id))
-        note = _replaced_note((replaced or {}).get(mi.obs_id, []))
+        note = fact_replace.note((replaced or {}).get(mi.obs_id, []), clock.local_tz())
         out.append(
             f"- {day} {at}{clock.since(mi.timestamp, now)} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
             f" {subject}{emo}: {body}{note}"

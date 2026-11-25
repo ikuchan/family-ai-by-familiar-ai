@@ -78,3 +78,31 @@ def test_a_failed_read_is_warned_and_shows_nothing(caplog):
     got = workspace.replaced_facts(SimpleNamespace(replacements_of=broken), [_r("o1", "a")])
     assert got == {}
     assert any("置き換え" in r.getMessage() for r in caplog.records)
+
+
+def test_copies_of_one_replacement_give_one_note_with_the_earliest_date():
+    from dataclasses import replace
+
+    later = replace(_REP, new_obs="ffff-copy", valid_at=datetime(2026, 10, 5, tzinfo=timezone.utc))
+    got = workspace._lines([_r("o1", "サッカー")], {"o1": "ママ"}, replaced={"o1": [later, _REP]})
+    assert got.count("置き換わった") == 1 and "2026-10-01" in got
+
+
+def test_the_recall_tool_lines_carry_the_note_too():
+    """思い出す道具の返り（`format_for_context`）にも同じ注記を添える（思い出し直して古い事実が今のことに戻らない）。"""
+    from familiar_agent.tools.memory import ObservationMemory
+
+    mem = ObservationMemory.__new__(ObservationMemory)
+    mem.replacements_of = lambda ids: {"o1": [_REP]}
+    got = mem.format_for_context(
+        [
+            {
+                "memory_id": "o1",
+                "date": "2026-09-01",
+                "time": "10:00",
+                "summary": "サッカー",
+                "direction": "発話",
+            }
+        ]
+    )
+    assert "（「さぶろうの習い事」は 2026-10-01 に置き換わった" in got

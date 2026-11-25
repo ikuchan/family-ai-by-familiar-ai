@@ -96,3 +96,22 @@ def parse(raw: str, n: int) -> "list[Verdict | None] | None":
         ok = isinstance(since, str) and bool(_DATE.match(since))
         out[i] = Verdict(replaced=row["replaced"], since=since if ok else None)
     return out
+
+
+def note(reps: list, tz) -> str:
+    """置き換えられた事実の注記（記-ah 段 3）。「（「話題」は いつ に置き換わった・新しい記録 id:…）」を話題ごとに 1 つ。
+
+    同じ古い事実が写しの記録ぶん置き換えられていても（段 2 は同じ本文の記録すべてに書く）、話題（古い鍵）ごとに 1 つにし、
+    いちばん早い置き換えを書く。日付は `tz`（家の暦）で書く。W の行と、思い出す道具の返りの両方が使う。
+    """
+    first: dict = {}
+    for rep in reps:
+        cur = first.get(rep.old_key)
+        if cur is None or (rep.valid_at and (cur.valid_at is None or rep.valid_at < cur.valid_at)):
+            first[rep.old_key] = rep
+    out = []
+    for rep in first.values():
+        when = rep.valid_at.astimezone(tz).strftime("%Y-%m-%d") if rep.valid_at else "?"
+        sid = rep.new_obs.replace("-", "")[:12] or "?"
+        out.append(f"（「{rep.old_sentence}」は {when} に置き換わった・新しい記録 id:{sid}）")
+    return "".join(out)

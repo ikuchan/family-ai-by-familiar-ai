@@ -1437,7 +1437,17 @@ class ObservationMemory:
     def format_for_context(self, memories: list[dict]) -> str:
         if not memories:
             return ""
+        from ..core import fact_replace
+        from ..store.clock import local_tz
+
         lines = ["[過去の記憶（証拠つき）: conf<0.55 は不確か]:"]
+        # 置き換えられた事実には期間を添える（記-ah 段 3・W と同じ注記）。読めなければ添えない。
+        ids = [str(m.get("memory_id", "")) for m in memories if m.get("memory_id")]
+        replaced: dict = {}
+        try:
+            replaced = self.replacements_of(ids) if ids else {}
+        except Exception:  # noqa: BLE001
+            logger.warning("事実の置き換えを読めなかった（期間を添えずに返す）", exc_info=True)
         for m in memories:
             fit_s = f" (適合度:{m['fit']:.2f})" if "fit" in m else ""
             conf = float(m.get("confidence", 0.0))
@@ -1451,6 +1461,7 @@ class ObservationMemory:
             lines.append(
                 f"- {m.get('date', '?')} {m.get('time', '?')} id:{sid}{fit_s}{conf_s}{low}"
                 f" {subject}{emo}: {m['summary'][:120]}"
+                + fact_replace.note(replaced.get(str(m.get("memory_id", "")), []), local_tz())
             )
         return "\n".join(lines)
 

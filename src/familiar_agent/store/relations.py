@@ -220,14 +220,18 @@ class RelationStore:
         )
 
     def replacements_of(self, obs_ids: "list[str]") -> "dict[str, list[Replacement]]":
-        """記録ごとに、その記録の事実のうち置き換えられたもの（古い鍵の文、新しい鍵の文、いつから）。無ければ出さない。"""
+        """記録ごとに、その記録の事実のうち置き換えられたもの（古い鍵の文、新しい鍵の文、いつから）。無ければ出さない。
+
+        置き換えた記録が隠れていれば（畳まれた・改訂された）出さない。畳んだら要約の事実で判定し直す（設計の e）。
+        """
         if not obs_ids:
             return {}
+        live = not_hidden("nw")
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute(
-                    """
+                    f"""
                     SELECT a.obs_id AS old_obs, a.position AS old_key, ok.sentence AS old_sentence,
                            b.obs_id AS new_obs, b.position AS new_key, nk.sentence AS new_sentence,
                            r.valid_at
@@ -236,7 +240,8 @@ class RelationStore:
                     JOIN relation_members b ON b.relation_id = r.id AND b.role = '後'
                     JOIN obs_fact_keys ok ON ok.id = a.position AND ok.obs_id = a.obs_id
                     JOIN obs_fact_keys nk ON nk.id = b.position AND nk.obs_id = b.obs_id
-                    WHERE r.kind = %s AND a.obs_id = ANY(%s)
+                    JOIN observations nw ON nw.id = b.obs_id
+                    WHERE r.kind = %s AND a.obs_id = ANY(%s) AND {live}
                     ORDER BY r.valid_at NULLS LAST, r.id
                     """,
                     (KIND_REPLACE, list(obs_ids)),

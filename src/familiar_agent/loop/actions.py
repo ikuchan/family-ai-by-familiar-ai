@@ -465,7 +465,7 @@ def _widen_lines(ws, k: int, now: datetime) -> str:
 
     W と同じく、`now` からの距離を添える（出-ds）。記憶（O）に書く文では外す（`workspace.strip_ago`）。
     """
-    from .workspace import _lines, about_names, me_of, named
+    from .workspace import _lines, about_names, me_of, named, replaced_facts
 
     picked = sorted(ws.memories, key=lambda r: r.fit, reverse=True)[:k]
     if not picked:
@@ -473,7 +473,15 @@ def _widen_lines(ws, k: int, now: datetime) -> str:
     names: dict = {}
     with contextlib.suppress(Exception):
         names = dict(ws.oif.actors([r.mi.obs_id for r in picked]))
-    return _lines(picked, named(names, me_of(ws.oif)), about=about_names(ws.oif, picked), now=now)
+    return _lines(
+        picked,
+        named(names, me_of(ws.oif)),
+        about=about_names(ws.oif, picked),
+        now=now,
+        replaced=replaced_facts(
+            ws.oif, picked
+        ),  # 思い出し直しても、置き換わった事実は期間つきで（記-ah 段 3）
+    )
 
 
 def _widen_def(name: str) -> dict:

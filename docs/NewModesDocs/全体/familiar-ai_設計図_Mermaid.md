@@ -233,7 +233,7 @@ flowchart TD
   O -->|2| B
   O -->|13| BOOT
   O -->|4| C
-  O -->|12| CORE
+  O -->|13| CORE
   O -->|7| GMD
   O -->|1| RES
   O -->|6| W
@@ -263,7 +263,7 @@ flowchart TD
   UI -->|1| RES
   UI -->|2| SS
   W -->|1| C
-  W -->|7| CORE
+  W -->|8| CORE
   W -->|8| O
 ```
 
