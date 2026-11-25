@@ -20,12 +20,19 @@ enum class Screen {
  *
  * いまの話者は、押して代えるまで、つなぎ直しても同じ人のまま（§4 の 5）。返事を待つのは、求めが閉じた・断られた・
  * 切れた・送った言葉の時間切れ（[timedOut]・画面が時計で呼ぶ）まで。機体の返事が来ないまま待ち続けない。
+ *
+ * いま鳴らす考え中の合図（[beep]・c4）は、`cue` が届いてから、返事・閉じた・断られた・切れた・時間切れまで。機体と同じく、
+ * 答えを言うあいだは鳴らさない。知らない種類と、返事を待っていないときに届いた合図は鳴らさない。
  */
 class Talk(var speaker: String = "") {
     private var connected = false
     private var busy = false
     private var waiting = false
     private var serial = 0
+
+    /** いま鳴らす合図の音のファイル（[Beeps.FILES]）。無ければ鳴らさない。 */
+    var beep: String? = null
+        private set
 
     val screen: Screen
         get() = when {
@@ -37,10 +44,11 @@ class Talk(var speaker: String = "") {
 
     fun on(msg: FromMachine) {
         when (msg) {
-            is FromMachine.Hello -> { connected = true; busy = msg.busy; waiting = false }
+            is FromMachine.Hello -> { connected = true; busy = msg.busy; waiting = false; beep = null }
             is FromMachine.Window -> busy = msg.busy
-            FromMachine.Closed, FromMachine.Refused -> waiting = false
-            is FromMachine.Say, is FromMachine.Cue -> Unit
+            FromMachine.Closed, FromMachine.Refused -> { waiting = false; beep = null }
+            is FromMachine.Say -> beep = null
+            is FromMachine.Cue -> if (waiting) beep = Beeps.FILES[msg.kind] // 待ちを解いたあとの遅れた合図では鳴らさない
         }
     }
 
@@ -52,11 +60,12 @@ class Talk(var speaker: String = "") {
 
     /** `sent` が返した番号の言葉の時間切れ。そのあとに送った言葉があれば、待ちは解かない。 */
     fun timedOut(sentSerial: Int) {
-        if (sentSerial == serial) waiting = false
+        if (sentSerial == serial) { waiting = false; beep = null }
     }
 
     fun disconnected() {
         connected = false
         waiting = false
+        beep = null
     }
 }

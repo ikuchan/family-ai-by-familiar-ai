@@ -113,6 +113,26 @@ def test_the_waiting_cue_goes_to_the_device_once_per_kind():
     assert [p for _, k, p in got if k == "cue"] == [{"kind": "a"}, {"kind": "b"}]
 
 
+def test_the_waiting_cue_is_sent_again_after_a_reply_to_the_device():
+    """端-c c4 の見直し：端末は返事が届くと合図を止めるので、返事のあとも同じ子で考え続けるなら、もう一度送る。"""
+    ip, got, _ = _ip()
+    ip._agent.config.wait_beep_interval_seconds = 0.0
+    calls = {"n": 0}
+
+    def child():
+        calls["n"] += 1
+        if calls["n"] == 2:
+            ip._to_device("say", {"text": "ちょっと調べるね", "display": "ちょっと調べるね"})
+        if calls["n"] > 3:
+            ip._request_generation += 1  # 求めが閉じた
+        return "a"
+
+    ip._paju().thinking_child = child
+    ip._never_speaks = lambda: False
+    asyncio.run(asyncio.wait_for(ip._beep_while_waiting(ip._request_generation), timeout=2.0))
+    assert [k for _, k, _ in got] == ["cue", "say", "cue"]
+
+
 def test_the_device_is_told_when_its_request_closes():
     ip, got, _ = _ip()
     ip._tell_device_closed()

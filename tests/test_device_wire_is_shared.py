@@ -7,6 +7,7 @@
 - 端末 → 機体：アプリが作る字（見本）を、端末の口が言葉と話者として受ける。
 - 名前の合図：アプリの聞き分け（見本の `heard`）が、機体の門の文頭の名前の決まりと同じ。
 - 会話が続くあいだ：アプリが名前なしの声を送るあいだ（見本の `window_sec`）が、機体の窓の長さと同じ（端-c c3）。
+- 考え中の合図：アプリが `cue` の種類で鳴らす音と間隔（見本の `beeps`・`beep_interval_sec`）が、機体の電子音と同じ（端-c c4）。
 """
 
 from __future__ import annotations
@@ -118,3 +119,19 @@ def test_the_app_keeps_the_conversation_as_long_as_the_machine_window():
     from familiar_agent.core.wake_window import WAKE_WINDOW_SEC
 
     assert WIRE["window_sec"] == WAKE_WINDOW_SEC
+
+
+def test_the_app_beeps_the_machine_sounds_at_the_machine_pace(monkeypatch):
+    """端-c c4：端末は `cue` の種類で、機体と同じ電子音（`BEEP_WAVS`）を同じ間隔（`wait_beep_interval_seconds`）で鳴らす。"""
+    import dataclasses
+
+    from familiar_agent.config import AgentConfig
+    from familiar_agent.core.reaction_cue import BEEP_WAVS
+
+    assert WIRE["beeps"] == {kind: path.name for kind, path in BEEP_WAVS.items()}
+    assert all(path.exists() for path in BEEP_WAVS.values())
+    monkeypatch.delenv("WAIT_BEEP_INTERVAL_SECONDS", raising=False)
+    field = next(
+        f for f in dataclasses.fields(AgentConfig) if f.name == "wait_beep_interval_seconds"
+    )
+    assert WIRE["beep_interval_sec"] == field.default_factory()  # type: ignore[misc]

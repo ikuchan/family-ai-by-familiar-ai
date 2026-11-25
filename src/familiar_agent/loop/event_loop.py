@@ -1331,6 +1331,9 @@ class InformationProcessing:
         interval = float(getattr(self._agent.config, "wait_beep_interval_seconds", 1.0))
         loop = asyncio.get_running_loop()
         sent = ""  # 端末へ送った合図の種類（変わったときだけ送る）
+        said = getattr(
+            self, "_device_says", 0
+        )  # 送った合図のあとに端末へ返事を送ったか（端末は返事で合図を止める）
         while gen == self._request_generation:
             started = loop.time()
             try:
@@ -1343,9 +1346,10 @@ class InformationProcessing:
                     played: "bool | None" = True
                 elif self._req_device():
                     # 端末の求めでは家で鳴らさず、何の合図かだけを端末へ送る（b1・端-b 段 1-ろ-2）
-                    if kind != sent:
+                    says = getattr(self, "_device_says", 0)
+                    if kind != sent or says != said:
                         self._to_device("cue", {"kind": kind})
-                        sent = kind
+                        sent, said = kind, says
                     played = True
                 elif self._sounding():  # 家の声や合図が鳴っているあいだは、家の電子音を重ねない
                     played = True
@@ -3191,6 +3195,9 @@ class InformationProcessing:
     def _to_device(self, kind: str, payload: dict, *, device: "str | None" = None) -> None:
         """端末へ送る（`device` を渡さなければ、いまの求めの端末）。送り先が無い・落ちたら、ログに残して続ける（家では鳴らさない）。"""
         device = self._req_device() if device is None else device
+        if kind == "say":
+            # 端末は返事が届くと考え中の合図を止めるので、合図の輪がもう一度送れるよう数える（端-c c4）
+            self._device_says = getattr(self, "_device_says", 0) + 1
         listener = getattr(self, "_on_device", None)  # 殻だけの器（テスト）でも落ちない
         if listener is None:
             logger.warning("event-loop 端末へ返す口が無いまま送ろうとした（%s）", kind)

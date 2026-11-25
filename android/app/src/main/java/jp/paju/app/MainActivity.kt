@@ -6,11 +6,14 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -24,6 +27,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import jp.paju.core.Address
+import jp.paju.core.Beeps
 import jp.paju.core.FromMachine
 import jp.paju.core.Listen
 import jp.paju.core.Screen
@@ -39,6 +43,8 @@ import jp.paju.core.Wire
  *
  * 声（c3）：画面を開いているあいだ、端末の中の音声認識で聞き、名前を呼ぶ合図のあとの言葉を送る（[Listen]）。「ずっと聞く」に
  * した端末（充電して置くタブレット）は、画面を消さずに開いたままにして聞き続ける。
+ *
+ * 考え中の合図（c4）：機体から `cue` が届いたら、その種類の電子音を、返事か閉じるまで 1 秒ごとに鳴らす（[Talk.beep]）。
  */
 class MainActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("paju", Context.MODE_PRIVATE) }
@@ -48,6 +54,24 @@ class MainActivity : Activity() {
     private val listen = Listen()
     private val ear by lazy { Ear(this, ::onHeard, ::onEarLost) }
     private var started = false
+    private val pool = SoundPool.Builder()
+        .setMaxStreams(1)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANT) // 声の助け手の音（c5 の返事の声と同じ流れにする）
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build(),
+        )
+        .build()
+    private val sounds = mutableMapOf<String, Int>()
+    private var ringing: String? = null // いま鳴らしている合図（Talk.beep を写す。変わったら鳴らし直す）
+    private val beepTick = object : Runnable {
+        override fun run() {
+            val file = talk.beep ?: return
+            sounds[file]?.let { pool.play(it, 1f, 1f, 1, 0, 1f) }
+            main.postDelayed(this, Beeps.INTERVAL_MS)
+        }
+    }
     private var names: List<String> = emptyList()
 
     private lateinit var status: TextView
@@ -97,6 +121,10 @@ class MainActivity : Activity() {
         root.fitsSystemWindows = true
         setContentView(root)
         keepScreen()
+        for (file in Beeps.FILES.values.toSet()) {
+            runCatching { assets.openFd("beeps/$file").use { sounds[file] = pool.load(it, 1) } }
+                .onFailure { Log.w("paju", "合図の音を読めなかった（$file）", it) }
+        }
         render()
     }
 
@@ -110,6 +138,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         main.removeCallbacksAndMessages(null) // 時間切れの仕事が古い画面を掴まないように
+        pool.release()
     }
 
     override fun onStop() {
@@ -247,6 +276,11 @@ class MainActivity : Activity() {
             Screen.BUSY -> "いまはほかの人と話しています"
             Screen.WAITING -> "考えています…"
         } + (if (talk.speaker.isNotEmpty()) "（${talk.speaker}）" else "") + (if (ear.listening) "・聞いています" else "")
+        if (talk.beep != ringing) {
+            ringing = talk.beep
+            main.removeCallbacks(beepTick)
+            beepTick.run() // 新しい合図はすぐ鳴らす
+        }
         val open = screen == Screen.FREE || screen == Screen.WAITING
         input.isEnabled = open
         send.isEnabled = open

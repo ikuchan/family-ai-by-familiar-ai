@@ -34,6 +34,14 @@
   "パジュ"
  ],
  "window_sec": 10,
+ "beeps": {
+  "recalling": "react_beep_recalling.wav",
+  "deciding": "react_thinking.wav",
+  "awaiting": "react_beep_awaiting.wav",
+  "checking": "react_beep_checking.wav",
+  "noting": "react_beep_noting.wav"
+ },
+ "beep_interval_sec": 1.0,
  "wake": [
   {
    "text": "パジュ、おはよう",
