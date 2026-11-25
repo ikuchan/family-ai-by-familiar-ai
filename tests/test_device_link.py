@@ -380,3 +380,66 @@ def test_a_failing_link_does_not_stop_the_start():
         assert getattr(a, "_device_link", None) is None
 
     asyncio.run(go())
+
+
+# ── 合言葉（端-c・家の Wi-Fi から端末をつなぐ・課題9 §8.10） ──
+KEY = "k" * 16
+
+
+def _run_keyed(body, key=KEY):
+    async def go():
+        link = DeviceLink(_Pushes(), VOICE, host="127.0.0.1", port=0, key=key)
+        assert await link.start()
+        try:
+            async with aiohttp.ClientSession() as session:
+                return await asyncio.wait_for(
+                    body(link, session, f"http://127.0.0.1:{link.port}"), 5.0
+                )
+        finally:
+            await link.close()
+
+    return asyncio.run(go())
+
+
+@pytest.mark.parametrize("key", ["", "short-key", "あいことば" * 4])
+def test_without_a_long_enough_key_the_link_stays_inside_the_machine(key):
+    """合言葉が無いか 16 字に満たないか ASCII でなければ（端末は頭書きに日本語を書けない）、外で待ち受ける番地を渡されても、機体の中（127.0.0.1）だけで待ち受ける。"""
+    link = DeviceLink(_Pushes(), VOICE, host="0.0.0.0", port=0, key=key)
+    assert link.host == "127.0.0.1"
+
+
+def test_with_a_key_the_link_listens_where_it_is_told():
+    """**反証の側**：合言葉があれば、渡された番地（家の Wi-Fi から入れる 0.0.0.0）で待ち受ける。"""
+    assert DeviceLink(_Pushes(), VOICE, host="0.0.0.0", port=0, key=KEY).host == "0.0.0.0"
+
+
+@pytest.mark.parametrize(
+    "headers", [{}, {"Authorization": "Bearer " + "x" * 16}, {"Authorization": KEY}]
+)
+def test_a_device_without_the_key_cannot_connect(headers):
+    async def body(link, session, url):
+        with pytest.raises(aiohttp.WSServerHandshakeError) as e:
+            await session.ws_connect(f"{url}/device?name=tab", headers=headers)
+        assert e.value.status == 401
+
+    _run_keyed(body)
+
+
+def test_a_device_with_the_key_connects():
+    async def body(link, session, url):
+        ws = await session.ws_connect(
+            f"{url}/device?name=tab", headers={"Authorization": f"Bearer {KEY}"}
+        )
+        assert (await _recv(ws))["type"] == "hello"
+        await ws.close()
+
+    _run_keyed(body)
+
+
+def test_the_key_comes_from_the_env_and_the_link_opens_to_the_home_network(monkeypatch):
+    from familiar_agent.config import DeviceLinkConfig
+
+    monkeypatch.setenv("DEVICE_LINK_KEY", KEY)
+    cfg = DeviceLinkConfig()
+    got = cfg.key  # 落ちたときに鍵を丸ごと出さない
+    assert got == KEY and cfg.host == "0.0.0.0"

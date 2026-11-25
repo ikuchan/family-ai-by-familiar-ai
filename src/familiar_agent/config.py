@@ -598,8 +598,13 @@ class DeviceLinkConfig:
     """端末の口（端-b 段 1-ろ-4・`io/device_link`・課題9 §6.6）。家族の端末の言葉を受け、返事を送り返す待ち受け。"""
 
     enabled: bool = True
-    # 既定は機体の中だけで待ち受ける（仮・2026-11-25）。家族の端末から入る道（Tailscale）は端-d で作り、そのとき番地を変える。
-    host: str = "127.0.0.1"
+    # 家の Wi-Fi（と、端-d のあとは Tailscale）から入れるように、どの番地でも待ち受ける（仮・2026-11-26）。ただし合言葉
+    # （`key`）が無いか短ければ、機体の中（127.0.0.1）だけで待ち受ける（`io/device_link`）。
+    host: str = "0.0.0.0"
+    # 端末の合言葉（資格情報なので `.env` の `DEVICE_LINK_KEY`）。端末は同じ字をアプリの設定に入れ、つなぐたびに送る。
+    key: str = field(
+        default_factory=lambda: os.environ.get("DEVICE_LINK_KEY", "").strip(), repr=False
+    )
     port: int = 8765  # 仮・2026-11-25
     # 端末から 1 回に受ける言葉の字数の上限（仮・2026-11-25）。打った字でも話した字でも、ふつうはずっと短い。
     max_chars: int = 2000

@@ -83,8 +83,10 @@ capabilities:
       alarm, stopwatch, stopping, skipping or turning music up or down, answering a
       suggested song, printing) and the person's own tools (vault, journal) are not offered
       to a device request. A home "be quiet" does not stop device replies and
-      is not lifted from a device. For now the agent listens only on this machine
-      (127.0.0.1:8765); the private route for family devices from outside comes later.
+      is not lifted from a device. With a shared passphrase (DEVICE_LINK_KEY, 16 or more
+      characters) the agent listens on the home network (port 8765) and refuses devices
+      without it; without one it listens only on this machine. The private route for
+      family devices from outside the home comes later.
       Implemented in `io/device_link.py`, `core/device_clock.py` and `loop/event_loop.py`.
     enabled: true
   - id: camera_vision

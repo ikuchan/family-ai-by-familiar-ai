@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.text.InputType
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -50,7 +51,7 @@ class MainActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("paju", Context.MODE_PRIVATE) }
     private val main = Handler(Looper.getMainLooper())
     private val talk by lazy { Talk(speaker = prefs.getString(KEY_SPEAKER, "") ?: "") }
-    private val link = Link(::onMessage, ::onDown)
+    private val link = Link(::onMessage, ::onDown) { line("合言葉が違うので、機体につなげません。設定の合言葉を直してください") }
     private val listen = Listen()
     private val ear by lazy { Ear(this, ::onHeard, ::onEarLost) }
     private var started = false
@@ -155,7 +156,7 @@ class MainActivity : Activity() {
 
     private fun connect() {
         val url = url()
-        if (url == null || !link.open(url)) {
+        if (url == null || !link.open(url, prefs.getString(KEY_SECRET, "") ?: "")) {
             link.close()
             talk.disconnected()
         }
@@ -309,6 +310,11 @@ class MainActivity : Activity() {
     private fun askSettings() {
         val address = EditText(this).apply { hint = "機体の番地（例 100.64.0.1）"; setText(prefs.getString(KEY_ADDRESS, "")) }
         val device = EditText(this).apply { hint = "この端末の名前"; setText(deviceName()) }
+        val secret = EditText(this).apply {
+            hint = "合言葉（機体の .env の DEVICE_LINK_KEY と同じ字）"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(prefs.getString(KEY_SECRET, ""))
+        }
         val always = CheckBox(this).apply {
             text = "ずっと聞く（画面を消さない・充電して置く端末に）"
             isChecked = prefs.getBoolean(KEY_ALWAYS, false)
@@ -318,6 +324,7 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(8), dp(16), 0)
             addView(address)
             addView(device)
+            addView(secret)
             addView(always)
         }
         AlertDialog.Builder(this)
@@ -327,6 +334,7 @@ class MainActivity : Activity() {
                 prefs.edit()
                     .putString(KEY_ADDRESS, address.text.toString().trim())
                     .putString(KEY_DEVICE, device.text.toString().trim())
+                    .putString(KEY_SECRET, secret.text.toString().trim())
                     .putBoolean(KEY_ALWAYS, always.isChecked)
                     .apply()
                 keepScreen()
@@ -341,6 +349,7 @@ class MainActivity : Activity() {
     private companion object {
         const val KEY_ADDRESS = "address"
         const val KEY_DEVICE = "device"
+        const val KEY_SECRET = "secret"
         const val KEY_SPEAKER = "speaker"
         const val KEY_ALWAYS = "always"
         const val KEY_ASKED_MIC = "asked_mic"

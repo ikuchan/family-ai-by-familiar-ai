@@ -15,7 +15,10 @@
   say（`text` は声にする字、`display` は画面の字）・cue・closed・refused（`event_loop.set_device_listener`）。
 - 読めない字・知らない種類はログに残して捨て、つながりは切らない。空か長すぎる言葉は断ったと返す（端末が待ち続けない）。同じ名前の 2 本目がつながれば、古いほうを
   閉じる（仮）。入口を待つ言葉は 1 台につき 3 つまでで、それより多ければ断ったと返す（仮）。
-- Origin を付けたつなぎ（ブラウザのページ）は断る（仮）。家族の端末かどうかを確かめる鍵は、外から入れる道（端-d）と一緒に考える。
+- Origin を付けたつなぎ（ブラウザのページ）は断る（仮）。
+- 家族の端末かどうかは合言葉（`DeviceLinkConfig.key`・ASCII の字だけ・起動のときに読む）で確かめる（課題9 §8.10）。端末は `Authorization: Bearer 合言葉` を
+  付けてつなぎ、無いか違えば 401 で断る。合言葉が無いか 16 字に満たなければ、渡された番地によらず機体の中（127.0.0.1）
+  だけで待ち受け、合言葉を確かめない（仮・2026-11-26）。合言葉はログに出さない。
 
 ログには端末の名前を印（`redact.tag`）で、言葉を字数で出す（家族の言葉と名前を出さない）。
 """
@@ -24,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import json
 import logging
 from typing import Any, Callable, Coroutine
@@ -39,6 +43,10 @@ Push = Callable[[str, str, str], Coroutine[Any, Any, Any]]
 
 _NAME_MAX = 32  # 端末の名前と話者の名前の長さの上限（仮）
 _PENDING_MAX = 3  # 1 台が入口を待たせておける言葉の数（仮）。多すぎる言葉で家の列を埋めない
+KEY_MIN = (
+    16  # 外で待ち受けるのに要る合言葉の長さ（仮）。短い合言葉は、家の Wi-Fi の誰かに当てられうる
+)
+_INSIDE = "127.0.0.1"
 
 
 class _Link:
@@ -81,6 +89,7 @@ class DeviceLink:
         *,
         host: str,
         port: int,
+        key: str = "",
         max_chars: int = 2000,
         names: "Callable[[], list[str]]" = list,
         speakers: "Callable[[], list[str]]" = list,
@@ -90,7 +99,16 @@ class DeviceLink:
         # つなぐたびに読む（/reload で読み直した ME.md・FAMILY.md も伝わる）
         self._names = names  # パジュの呼び名（端末が名前を呼ぶ合図に使う）
         self._speakers = speakers  # 話者のボタンに並べる家族の呼び名（ログには出さない）
-        self._host = host
+        usable = len(key) >= KEY_MIN and key.isascii() and key.isprintable()
+        self._key = key.encode() if usable else b""
+        if key and not usable:
+            # 端末は合言葉を頭書きに書くので、ASCII の字だけ（日本語の合言葉は端末が送れない）
+            logger.warning(
+                "device-link 合言葉が %d 字に満たないか ASCII でないので、機体の中だけで待ち受ける",
+                KEY_MIN,
+            )
+        #: 待ち受ける番地。合言葉が無ければ機体の中だけ（家の Wi-Fi の誰もが家族の名前で話しかけられないように）。
+        self.host = host if self._key else _INSIDE
         self._port = port
         self._max_chars = max_chars
         self._links: dict[str, _Link] = {}
@@ -113,12 +131,12 @@ class DeviceLink:
         app.router.add_get("/device", self._handle)
         runner = web.AppRunner(app, handle_signals=False)
         await runner.setup()
-        site = web.TCPSite(runner, self._host, self._port)
+        site = web.TCPSite(runner, self.host, self._port)
         try:
             await site.start()
         except OSError:
             logger.warning(
-                "device-link 端末の口を開けなかった（%s:%s）", self._host, self._port, exc_info=True
+                "device-link 端末の口を開けなかった（%s:%s）", self.host, self._port, exc_info=True
             )
             await runner.cleanup()
             return False
@@ -126,7 +144,7 @@ class DeviceLink:
         server = getattr(site, "_server", None)
         sockets = getattr(server, "sockets", None) or []
         self.port = sockets[0].getsockname()[1] if sockets else self._port
-        logger.info("device-link 端末の口を開けた（%s:%s）", self._host, self.port)
+        logger.info("device-link 端末の口を開けた（%s:%s）", self.host, self.port)
         return True
 
     async def close(self) -> None:
@@ -181,6 +199,13 @@ class DeviceLink:
             # ように断る（仮・2026-11-25）。
             logger.info("device-link Origin のあるつなぎを断った")
             return web.Response(status=403, text="forbidden")
+        if self._key and not hmac.compare_digest(
+            # 読めない字の頭書きでも落ちずに断る
+            request.headers.get("Authorization", "").encode("utf-8", "surrogateescape"),
+            b"Bearer " + self._key,
+        ):
+            logger.info("device-link 合言葉の無いつなぎを断った")
+            return web.Response(status=401, text="unauthorized")
         name = (request.query.get("name") or "").strip()
         if not name or len(name) > _NAME_MAX:
             # 空は家の印なので、名前の無い端末はつながせない。
