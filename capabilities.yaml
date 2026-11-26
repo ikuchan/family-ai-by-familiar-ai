@@ -83,9 +83,11 @@ capabilities:
       alarm, stopwatch, stopping, skipping or turning music up or down, answering a
       suggested song, printing) and the person's own tools (vault, journal) are not offered
       to a device request. A home "be quiet" does not stop device replies and
-      is not lifted from a device. With a shared passphrase (DEVICE_LINK_KEY, 16 or more
-      characters) the agent listens on the home network (port 8765) and refuses devices
-      without it; without one it listens only on this machine. The private route for
+      is not lifted from a device. With per-device passphrases (DEVICE_LINK_KEYS, pairs of
+      device name and passphrase of 16 or more characters) the agent listens on the home
+      network (port 8765) and refuses a device whose name and passphrase do not match, so
+      a lost device is shut out by removing its pair; without any it listens only on
+      this machine. The private route for
       family devices from outside the home comes later.
       Implemented in `io/device_link.py`, `core/device_clock.py` and `loop/event_loop.py`.
     enabled: true

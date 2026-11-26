@@ -311,7 +311,7 @@ class MainActivity : Activity() {
         val address = EditText(this).apply { hint = "機体の番地（例 100.64.0.1）"; setText(prefs.getString(KEY_ADDRESS, "")) }
         val device = EditText(this).apply { hint = "この端末の名前"; setText(deviceName()) }
         val secret = EditText(this).apply {
-            hint = "合言葉（機体の .env の DEVICE_LINK_KEY と同じ字）"
+            hint = "合言葉（機体の .env の DEVICE_LINK_KEYS の、この端末の名前の組）"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setText(prefs.getString(KEY_SECRET, ""))
         }

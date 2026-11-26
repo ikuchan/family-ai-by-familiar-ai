@@ -16,8 +16,9 @@
 - 読めない字・知らない種類はログに残して捨て、つながりは切らない。空か長すぎる言葉は断ったと返す（端末が待ち続けない）。同じ名前の 2 本目がつながれば、古いほうを
   閉じる（仮）。入口を待つ言葉は 1 台につき 3 つまでで、それより多ければ断ったと返す（仮）。
 - Origin を付けたつなぎ（ブラウザのページ）は断る（仮）。
-- 家族の端末かどうかは合言葉（`DeviceLinkConfig.key`・ASCII の字だけ・起動のときに読む）で確かめる（課題9 §8.10）。端末は `Authorization: Bearer 合言葉` を
-  付けてつなぎ、無いか違えば 401 で断る。合言葉が無いか 16 字に満たなければ、渡された番地によらず機体の中（127.0.0.1）
+- 家族の端末かどうかは、端末ごとの合言葉（`DeviceLinkConfig.keys`・ASCII の字だけ・起動のときに読む）で確かめる
+  （課題9 §8.10）。名前と合言葉の組が合わなければ断る。落とした端末は組を消して起動し直す。端末は `Authorization: Bearer 合言葉` を
+  付けてつなぎ、無いか違えば 401 で断る。使える組が 1 つも無ければ、渡された番地によらず機体の中（127.0.0.1）
   だけで待ち受け、合言葉を確かめない（仮・2026-11-26）。合言葉はログに出さない。
 
 ログには端末の名前を印（`redact.tag`）で、言葉を字数で出す（家族の言葉と名前を出さない）。
@@ -47,6 +48,46 @@ KEY_MIN = (
     16  # 外で待ち受けるのに要る合言葉の長さ（仮）。短い合言葉は、家の Wi-Fi の誰かに当てられうる
 )
 _INSIDE = "127.0.0.1"
+_NO_KEY = b"\0" * KEY_MIN  # 組の無い名前と比べる字（名前の有る無しで、比べる長さを変えない）
+
+
+def parse_keys(raw: str) -> "dict[str, bytes]":
+    """`端末の名前:合言葉` を `,` で区切った字から、端末の名前 → 合言葉。使えない組は WARNING を残して使わない。
+
+    名前は最初の `:` の前（名前に `:` と `,` は使えない・32 字まで）、合言葉はそのあと（`,` は使えない）。端末は合言葉を
+    頭書きに書くので、合言葉は ASCII の字だけ（日本語の合言葉は端末が送れない）で、`KEY_MIN` 字以上。同じ名前の組が
+    2 つあれば、どちらが正しいか分からないので両方とも使わない。合言葉はログに出さない。
+    """
+    keys: dict[str, bytes] = {}
+    twice: set[str] = set()
+    for part in raw.split(","):
+        if not part.strip():
+            continue
+        if ":" not in part:
+            logger.warning("device-link 合言葉の組に「端末の名前:合言葉」の形でないものがある")
+            continue
+        name, _, key = (s.strip() for s in part.partition(":"))
+        if not name or len(name) > _NAME_MAX:
+            logger.warning(
+                "device-link 合言葉の組に、名前が無いか %d 字を超えるものがある", _NAME_MAX
+            )
+        elif not (len(key) >= KEY_MIN and key.isascii() and key.isprintable()):
+            logger.warning(
+                "device-link 端末（%s）の合言葉が %d 字に満たないか ASCII でないので使わない",
+                tag(name),
+                KEY_MIN,
+            )
+        elif name in keys or name in twice:
+            logger.warning(
+                "device-link 端末（%s）の合言葉の組が 2 つあるので、どちらも使わない", tag(name)
+            )
+            keys.pop(name, None)
+            twice.add(name)
+        else:
+            keys[name] = key.encode()
+    if raw.strip() and not keys:
+        logger.warning("device-link 使える合言葉の組が無いので、機体の中だけで待ち受ける")
+    return keys
 
 
 class _Link:
@@ -89,7 +130,7 @@ class DeviceLink:
         *,
         host: str,
         port: int,
-        key: str = "",
+        keys: str = "",
         max_chars: int = 2000,
         names: "Callable[[], list[str]]" = list,
         speakers: "Callable[[], list[str]]" = list,
@@ -99,16 +140,9 @@ class DeviceLink:
         # つなぐたびに読む（/reload で読み直した ME.md・FAMILY.md も伝わる）
         self._names = names  # パジュの呼び名（端末が名前を呼ぶ合図に使う）
         self._speakers = speakers  # 話者のボタンに並べる家族の呼び名（ログには出さない）
-        usable = len(key) >= KEY_MIN and key.isascii() and key.isprintable()
-        self._key = key.encode() if usable else b""
-        if key and not usable:
-            # 端末は合言葉を頭書きに書くので、ASCII の字だけ（日本語の合言葉は端末が送れない）
-            logger.warning(
-                "device-link 合言葉が %d 字に満たないか ASCII でないので、機体の中だけで待ち受ける",
-                KEY_MIN,
-            )
-        #: 待ち受ける番地。合言葉が無ければ機体の中だけ（家の Wi-Fi の誰もが家族の名前で話しかけられないように）。
-        self.host = host if self._key else _INSIDE
+        self._keys = parse_keys(keys)  # 端末の名前 → 合言葉
+        #: 待ち受ける番地。使える合言葉が無ければ機体の中だけ（家の Wi-Fi の誰もが家族の名前で話しかけられないように）。
+        self.host = host if self._keys else _INSIDE
         self._port = port
         self._max_chars = max_chars
         self._links: dict[str, _Link] = {}
@@ -199,17 +233,17 @@ class DeviceLink:
             # ように断る（仮・2026-11-25）。
             logger.info("device-link Origin のあるつなぎを断った")
             return web.Response(status=403, text="forbidden")
-        if self._key and not hmac.compare_digest(
-            # 読めない字の頭書きでも落ちずに断る
-            request.headers.get("Authorization", "").encode("utf-8", "surrogateescape"),
-            b"Bearer " + self._key,
-        ):
-            logger.info("device-link 合言葉の無いつなぎを断った")
-            return web.Response(status=401, text="unauthorized")
         name = (request.query.get("name") or "").strip()
         if not name or len(name) > _NAME_MAX:
             # 空は家の印なので、名前の無い端末はつながせない。
             return web.Response(status=400, text="name required")
+        if self._keys and not hmac.compare_digest(
+            # 読めない字の頭書きでも落ちずに断る。組の無い（消した）端末は、どの合言葉でも合わない
+            request.headers.get("Authorization", "").encode("utf-8", "surrogateescape"),
+            b"Bearer " + self._keys.get(name, _NO_KEY),
+        ):
+            logger.info("device-link 端末（%s）の合言葉が合わないので断った", tag(name))
+            return web.Response(status=401, text="unauthorized")
         ws = web.WebSocketResponse(heartbeat=30.0)
         await ws.prepare(request)
         old = self._links.get(name)

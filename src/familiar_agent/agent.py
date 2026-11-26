@@ -1329,7 +1329,7 @@ class EmbodiedAgent:
             {"model": tts.gemini_model, "voice": tts.gemini_voice},  # 鍵は渡さない
             host=cfg.host,
             port=cfg.port,
-            key=cfg.key,
+            keys=cfg.keys,
             max_chars=cfg.max_chars,
             names=lambda: list(self.config.agent_names),
             speakers=lambda: list(family_call_names_of(self)),  # 話者のボタン（端-c c2）

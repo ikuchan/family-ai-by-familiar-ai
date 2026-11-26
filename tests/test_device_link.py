@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 import aiohttp
 import pytest
 
-from familiar_agent.io.device_link import DeviceLink
+from familiar_agent.io.device_link import DeviceLink, parse_keys
 
 VOICE = {"model": "m-1", "voice": "v-1"}
 
@@ -382,13 +382,15 @@ def test_a_failing_link_does_not_stop_the_start():
     asyncio.run(go())
 
 
-# ── 合言葉（端-c・家の Wi-Fi から端末をつなぐ・課題9 §8.10） ──
+# ── 端末ごとの合言葉（端-c・家の Wi-Fi から端末をつなぐ・課題9 §8.10） ──
 KEY = "k" * 16
+OTHER = "o" * 16
+KEYS = f"tab:{KEY},phone:{OTHER}"
 
 
-def _run_keyed(body, key=KEY):
+def _run_keyed(body, keys=KEYS):
     async def go():
-        link = DeviceLink(_Pushes(), VOICE, host="127.0.0.1", port=0, key=key)
+        link = DeviceLink(_Pushes(), VOICE, host="127.0.0.1", port=0, keys=keys)
         assert await link.start()
         try:
             async with aiohttp.ClientSession() as session:
@@ -401,34 +403,53 @@ def _run_keyed(body, key=KEY):
     return asyncio.run(go())
 
 
-@pytest.mark.parametrize("key", ["", "short-key", "あいことば" * 4])
-def test_without_a_long_enough_key_the_link_stays_inside_the_machine(key):
-    """合言葉が無いか 16 字に満たないか ASCII でなければ（端末は頭書きに日本語を書けない）、外で待ち受ける番地を渡されても、機体の中（127.0.0.1）だけで待ち受ける。"""
-    link = DeviceLink(_Pushes(), VOICE, host="0.0.0.0", port=0, key=key)
+def test_keys_are_read_per_device_and_bad_ones_are_dropped():
+    """組は `端末の名前:合言葉` を `,` で区切る。合言葉が 16 字に満たないか ASCII でない（端末は頭書きに日本語を書けない）組は使わない。"""
+    got = parse_keys(
+        f" tab : {KEY} , 短い:short, 日本語:{'あいことば' * 4}, :{KEY}, 名前だけ ,"
+        f"{'n' * 33}:{KEY},twice:{KEY},twice:{OTHER},colon:a:{OTHER},phone:{OTHER}"
+    )
+    assert sorted(got) == ["colon", "phone", "tab"]  # 落ちたときに合言葉を出さない
+    assert got["colon"] == f"a:{OTHER}".encode()  # 名前は最初の : の前、合言葉には : を使える
+    assert got["tab"] == KEY.encode() and got["phone"] == OTHER.encode()
+
+
+@pytest.mark.parametrize("keys", ["", "tab:short-key", f"tab:{'あいことば' * 4}"])
+def test_without_a_usable_key_the_link_stays_inside_the_machine(keys):
+    """使える組が 1 つも無ければ、外で待ち受ける番地を渡されても、機体の中（127.0.0.1）だけで待ち受ける。"""
+    link = DeviceLink(_Pushes(), VOICE, host="0.0.0.0", port=0, keys=keys)
     assert link.host == "127.0.0.1"
 
 
 def test_with_a_key_the_link_listens_where_it_is_told():
-    """**反証の側**：合言葉があれば、渡された番地（家の Wi-Fi から入れる 0.0.0.0）で待ち受ける。"""
-    assert DeviceLink(_Pushes(), VOICE, host="0.0.0.0", port=0, key=KEY).host == "0.0.0.0"
+    """**反証の側**：使える組があれば、渡された番地（家の Wi-Fi から入れる 0.0.0.0）で待ち受ける。"""
+    assert DeviceLink(_Pushes(), VOICE, host="0.0.0.0", port=0, keys=KEYS).host == "0.0.0.0"
 
 
 @pytest.mark.parametrize(
-    "headers", [{}, {"Authorization": "Bearer " + "x" * 16}, {"Authorization": KEY}]
+    "name,headers",
+    [
+        ("tab", {}),
+        ("tab", {"Authorization": "Bearer " + "x" * 16}),
+        ("tab", {"Authorization": KEY}),
+        ("tab", {"Authorization": f"Bearer {OTHER}"}),  # ほかの端末の合言葉
+        ("lost", {"Authorization": f"Bearer {KEY}"}),  # 組の無い（消した）端末
+    ],
 )
-def test_a_device_without_the_key_cannot_connect(headers):
+def test_a_device_without_its_own_key_cannot_connect(name, headers):
     async def body(link, session, url):
         with pytest.raises(aiohttp.WSServerHandshakeError) as e:
-            await session.ws_connect(f"{url}/device?name=tab", headers=headers)
+            await session.ws_connect(f"{url}/device?name={name}", headers=headers)
         assert e.value.status == 401
 
     _run_keyed(body)
 
 
-def test_a_device_with_the_key_connects():
+@pytest.mark.parametrize("name,key", [("tab", KEY), ("phone", OTHER)])
+def test_a_device_with_its_own_key_connects(name, key):
     async def body(link, session, url):
         ws = await session.ws_connect(
-            f"{url}/device?name=tab", headers={"Authorization": f"Bearer {KEY}"}
+            f"{url}/device?name={name}", headers={"Authorization": f"Bearer {key}"}
         )
         assert (await _recv(ws))["type"] == "hello"
         await ws.close()
@@ -436,10 +457,10 @@ def test_a_device_with_the_key_connects():
     _run_keyed(body)
 
 
-def test_the_key_comes_from_the_env_and_the_link_opens_to_the_home_network(monkeypatch):
+def test_the_keys_come_from_the_env_and_the_link_opens_to_the_home_network(monkeypatch):
     from familiar_agent.config import DeviceLinkConfig
 
-    monkeypatch.setenv("DEVICE_LINK_KEY", KEY)
+    monkeypatch.setenv("DEVICE_LINK_KEYS", KEYS)
     cfg = DeviceLinkConfig()
-    got = cfg.key  # 落ちたときに鍵を丸ごと出さない
-    assert got == KEY and cfg.host == "0.0.0.0"
+    got = cfg.keys  # 落ちたときに鍵を丸ごと出さない
+    assert got == KEYS and cfg.host == "0.0.0.0"

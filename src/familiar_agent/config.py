@@ -599,11 +599,12 @@ class DeviceLinkConfig:
 
     enabled: bool = True
     # 家の Wi-Fi（と、端-d のあとは Tailscale）から入れるように、どの番地でも待ち受ける（仮・2026-11-26）。ただし合言葉
-    # （`key`）が無いか短ければ、機体の中（127.0.0.1）だけで待ち受ける（`io/device_link`）。
+    # （`keys`）が 1 つも使えなければ、機体の中（127.0.0.1）だけで待ち受ける（`io/device_link`）。
     host: str = "0.0.0.0"
-    # 端末の合言葉（資格情報なので `.env` の `DEVICE_LINK_KEY`）。端末は同じ字をアプリの設定に入れ、つなぐたびに送る。
-    key: str = field(
-        default_factory=lambda: os.environ.get("DEVICE_LINK_KEY", "").strip(), repr=False
+    # 端末ごとの合言葉（資格情報なので `.env` の `DEVICE_LINK_KEYS`・`端末の名前:合言葉` を `,` で区切る）。端末は自分の
+    # 合言葉をアプリの設定に入れ、つなぐたびに送る。落とした端末は組を消して起動し直す（本人の決定・2026-11-26）。
+    keys: str = field(
+        default_factory=lambda: os.environ.get("DEVICE_LINK_KEYS", "").strip(), repr=False
     )
     port: int = 8765  # 仮・2026-11-25
     # 端末から 1 回に受ける言葉の字数の上限（仮・2026-11-25）。打った字でも話した字でも、ふつうはずっと短い。
