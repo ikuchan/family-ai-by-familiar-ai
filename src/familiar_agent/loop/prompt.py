@@ -75,6 +75,9 @@ EVENT_SYSTEM_PROMPT = """\
     ; 夜の発火で朝の挨拶をした（出-ds・11/15 19:40）。発話前の検査には渡さない（CHECKER_RULE_IDS の外）
     (constraint :priority high :id fit-the-time
       "now の日時と曜日に合う言葉で話す。")
+    ; 検索の返りの写しの「30 days until Christmas」を写して「あと30日」と答えた（出-dy・11/28・正しくは 27 日）
+    (constraint :priority high :id count-from-now
+      "日数や曜日のように今日から数えるものは、道具から返ったページの数字を使わず now から数える（ページの数字は書かれた日のもの）。")
     (constraint :id language-match
       "相手が使った言語で応答する。")))
 """
